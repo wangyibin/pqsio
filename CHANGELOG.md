@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.13 — 2026-09-09
+
+- Accelerate native numeric frame-to-column conversion with typed, chunk-aware
+  traversal while retaining conversion and null-error behavior.
+- Avoid a duplicate complete-read column copy when streaming concat data has no
+  region or MAPQ predicate, and add regression coverage for the filtered path.
+- Use fixed ABI layouts when decoding `Pair` and `Alignment` rows in Python,
+  with boundary coverage and reproducible synthetic benchmark reports.
+
 ## 0.0.12 — 2026-09-09
 
 - Add optional structured `cn.info` read, set, and update APIs for Rust, Python,

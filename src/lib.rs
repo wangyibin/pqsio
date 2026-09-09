@@ -18,6 +18,8 @@ pub mod inspection;
 pub use metadata::Metadata;
 pub use inspection::{inspect, validate, Inspection, ValidationLevel, ValidationReport};
 pub mod columns;
+#[cfg(test)]
+mod frame_columns_bench;
 pub mod ffi;
 pub use columns::{ColumnBatch, ConcatColumns, ConcatColumnsView, PairColumns, PairColumnsView};
 pub mod query;

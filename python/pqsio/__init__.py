@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.12"
+__version__ = "0.0.13"
 
 @dataclass
 class Pair:
@@ -140,6 +140,18 @@ def _encode(row, cls):
     raise TypeError("Unsupported PQS record layout")
 
 def _decode(row, cls):
+    # Fixed ABI layouts avoid reflection and an intermediate dict per record.
+    if cls is Pair:
+        read_id = row.read_id
+        return cls(read_id.decode("utf-8") if read_id is not None else None,
+                   row.chrom1, row.pos1, row.chrom2, row.pos2,
+                   chr(row.strand1), chr(row.strand2), row.mapq)
+    if cls is Alignment:
+        filter_reason = row.filter_reason
+        return cls(row.read_idx, row.read_length, row.read_start, row.read_end,
+                   chr(row.strand), row.chrom, row.start, row.end,
+                   row.mapping_quality, row.identity,
+                   filter_reason.decode("utf-8") if filter_reason is not None else None)
     values = {}
     for f in fields(cls):
         value = getattr(row, f.name)

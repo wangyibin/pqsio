@@ -79,6 +79,24 @@ class Streaming(unittest.TestCase):
                 offsets = [0] + [i for i in range(1,len(batch)) if batch[i].read_idx != batch[i-1].read_idx] + [len(batch)]
                 self.assertEqual(list(b.read_offsets), offsets)
         return expected
+    def test_unfiltered_complete_reads_across_shards(self):
+        # Includes zero-MAPQ reads, UTF-8/empty strings, long coordinates,
+        # and a read spanning row groups and shards, larger than the batch.
+        path = self.fixture()
+        for mode in (None, 'matching_alignments'):
+            for size in (1, 3, 100):
+                with self.subTest(mode=mode, size=size):
+                    batches = self.batches(path, n=size, boundary='complete_reads',
+                                           mode=mode, mapq=0)
+                    seen = set()
+                    for batch in batches:
+                        ids = {row.read_idx for row in batch}
+                        self.assertFalse(seen & ids)
+                        seen.update(ids)
+                    self.assertEqual(seen, {1, 2, 3, 4})
+        empty = self.fixture('empty-unfiltered', (), (), ())
+        self.assertEqual(self.batches(empty, boundary='complete_reads', mapq=0), [])
+
     def test_combinations_and_invariance(self):
         path = self.fixture()
         for mode, expected in [('matching_alignments',[1,3,4]), ('complete_reads',[1,1,3,3,3,3,3,4])]:

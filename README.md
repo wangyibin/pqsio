@@ -33,7 +33,7 @@ The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
 `test-parallel`, `test-streaming`, `test-query`, `test-inspection`, `test-merge`,
-`test-subset`, and `test-copy-numbers`. Python/native tests build the shared library first. `pixi run bench-columns --rows
+`test-subset`, `test-copy-numbers`, and `test-decode`. Python/native tests build the shared library first. `pixi run bench-columns --rows
 80000 --repetitions 5`, `pixi run bench-streaming` and `pixi run bench-query`
 explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved

@@ -1,6 +1,6 @@
 [package]
 name = "pqsio"
-version = "0.0.12"
+version = "0.0.13"
 edition = "2021"
 description = "Shared pairs and concat PQS storage for Rust, C, C++ and Python"
 license = "BSD-3-Clause"

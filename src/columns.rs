@@ -498,6 +498,74 @@ impl Writer {
     }
 }
 
+// MODE 0/1 are benchmark-only alternatives; production uses chunk traversal.
+macro_rules! integer_column {
+    ($name:ident, $target:ty, $matching:ident) => {
+        fn $name<const MODE: u8>(column: &Column) -> Result<Vec<$target>> {
+            let numbers = Numbers::new(column)?;
+            #[cfg(test)]
+            if MODE == 0 {
+                return (0..column.len())
+                    .map(|i| Ok(<$target>::try_from(numbers.at(i)?)?))
+                    .collect();
+            }
+            macro_rules! convert {
+                ($c:expr) => {{
+                    let c = $c;
+                    // Preserve the original first-error order for malformed data.
+                    if c.null_count() > 0 {
+                        return (0..column.len())
+                            .map(|i| Ok(<$target>::try_from(numbers.at(i)?)?))
+                            .collect();
+                    }
+                    #[cfg(test)]
+                    if MODE == 1 {
+                        return c
+                            .into_iter()
+                            .map(|v| {
+                                Ok(<$target>::try_from(u64::from(
+                                    v.context("null integer in PQS")?,
+                                ))?)
+                            })
+                            .collect();
+                    }
+                    let mut out = Vec::with_capacity(c.len());
+                    for chunk in c.downcast_iter() {
+                        for &v in chunk.values().as_slice() {
+                            out.push(<$target>::try_from(u64::from(v))?);
+                        }
+                    }
+                    Ok(out)
+                }};
+            }
+            if let Numbers::$matching(c) = &numbers {
+                if c.null_count() == 0 {
+                    #[cfg(test)]
+                    if MODE == 1 {
+                        return c
+                            .into_iter()
+                            .map(|v| v.context("null integer in PQS"))
+                            .collect();
+                    }
+                    let mut out = Vec::with_capacity(c.len());
+                    for chunk in c.downcast_iter() {
+                        out.extend_from_slice(chunk.values().as_slice());
+                    }
+                    return Ok(out);
+                }
+            }
+            match &numbers {
+                Numbers::U8(c) => convert!(c),
+                Numbers::U32(c) => convert!(c),
+                Numbers::U64(c) => convert!(c),
+            }
+        }
+    };
+}
+integer_column!(integer_u64, u64, U64);
+integer_column!(integer_u32, u32, U32);
+integer_column!(integer_u8, u8, U8);
+
 impl Reader {
     pub fn next_columns(&mut self) -> Result<Option<ColumnBatch>> {
         let Some(df) = self.next_frame()? else {
@@ -506,7 +574,9 @@ impl Reader {
         Ok(Some(self.frame_columns(df)?))
     }
     pub(crate) fn frame_columns(&self, df: DataFrame) -> Result<ColumnBatch> {
-        let number = |name: &str| Numbers::new(df.column(name)?);
+        self.frame_columns_mode::<2>(df)
+    }
+    pub(crate) fn frame_columns_mode<const MODE: u8>(&self, df: DataFrame) -> Result<ColumnBatch> {
         let chromosome = |name: &str| {
             Codes::new(df.column(name)?, |s| {
                 self.contig_ids
@@ -527,18 +597,12 @@ impl Reader {
             b.chrom1 = (0..df.height())
                 .map(|i| c.at(i))
                 .collect::<Result<Vec<_>>>()?;
-            let c = number("pos1")?;
-            b.pos1 = (0..df.height())
-                .map(|i| c.at(i))
-                .collect::<Result<Vec<_>>>()?;
+            b.pos1 = integer_u64::<MODE>(df.column("pos1")?)?;
             let c = chromosome("chrom2")?;
             b.chrom2 = (0..df.height())
                 .map(|i| c.at(i))
                 .collect::<Result<Vec<_>>>()?;
-            let c = number("pos2")?;
-            b.pos2 = (0..df.height())
-                .map(|i| c.at(i))
-                .collect::<Result<Vec<_>>>()?;
+            b.pos2 = integer_u64::<MODE>(df.column("pos2")?)?;
             let c = strand("strand1")?;
             b.strand1 = (0..df.height())
                 .map(|i| c.at(i))
@@ -547,10 +611,7 @@ impl Reader {
             b.strand2 = (0..df.height())
                 .map(|i| c.at(i))
                 .collect::<Result<Vec<_>>>()?;
-            let c = number("mapq")?;
-            b.mapq = (0..df.height())
-                .map(|i| Ok(c.at(i)?.try_into()?))
-                .collect::<Result<Vec<_>>>()?;
+            b.mapq = integer_u8::<MODE>(df.column("mapq")?)?;
             let text = df.column("read_idx")?.cast(&DataType::String)?;
             for s in text.str()?.into_iter() {
                 b.read_id_bytes
@@ -559,23 +620,13 @@ impl Reader {
             }
             Ok(ColumnBatch::Pairs(b))
         } else {
-            let mut b = ConcatColumns::default();
-            let c = number("read_idx")?;
-            b.read_idx = (0..df.height())
-                .map(|i| c.at(i))
-                .collect::<Result<Vec<_>>>()?;
-            let c = number("read_length")?;
-            b.read_length = (0..df.height())
-                .map(|i| Ok(c.at(i)?.try_into()?))
-                .collect::<Result<Vec<_>>>()?;
-            let c = number("read_start")?;
-            b.read_start = (0..df.height())
-                .map(|i| Ok(c.at(i)?.try_into()?))
-                .collect::<Result<Vec<_>>>()?;
-            let c = number("read_end")?;
-            b.read_end = (0..df.height())
-                .map(|i| Ok(c.at(i)?.try_into()?))
-                .collect::<Result<Vec<_>>>()?;
+            let mut b = ConcatColumns {
+                read_idx: integer_u64::<MODE>(df.column("read_idx")?)?,
+                read_length: integer_u32::<MODE>(df.column("read_length")?)?,
+                read_start: integer_u32::<MODE>(df.column("read_start")?)?,
+                read_end: integer_u32::<MODE>(df.column("read_end")?)?,
+                ..Default::default()
+            };
             let c = strand("strand")?;
             b.strand = (0..df.height())
                 .map(|i| c.at(i))
@@ -584,18 +635,9 @@ impl Reader {
             b.chrom = (0..df.height())
                 .map(|i| c.at(i))
                 .collect::<Result<Vec<_>>>()?;
-            let c = number("start")?;
-            b.start = (0..df.height())
-                .map(|i| c.at(i))
-                .collect::<Result<Vec<_>>>()?;
-            let c = number("end")?;
-            b.end = (0..df.height())
-                .map(|i| c.at(i))
-                .collect::<Result<Vec<_>>>()?;
-            let c = number("mapping_quality")?;
-            b.mapping_quality = (0..df.height())
-                .map(|i| Ok(c.at(i)?.try_into()?))
-                .collect::<Result<Vec<_>>>()?;
+            b.start = integer_u64::<MODE>(df.column("start")?)?;
+            b.end = integer_u64::<MODE>(df.column("end")?)?;
+            b.mapping_quality = integer_u8::<MODE>(df.column("mapping_quality")?)?;
             let identity = df.column("identity")?.cast(&DataType::Float32)?;
             b.identity = identity
                 .f32()?
@@ -667,5 +709,48 @@ impl ColumnBatch {
                 ))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod integer_tests {
+    use super::*;
+
+    #[test]
+    fn conversion_modes_preserve_values_and_errors() -> Result<()> {
+        let mut chunked = Series::new(
+            "x".into(),
+            &[999u64, 0, 255, 256, u32::MAX as u64, u64::MAX],
+        );
+        chunked = chunked.slice(1, 5);
+        chunked.append(&Series::new("x".into(), &[42u64]))?;
+        let cases: Vec<Column> = vec![
+            chunked.into(),
+            Series::new("x".into(), &[0u8, 255]).into(),
+            Series::new("x".into(), &[0u32, 255, 256, u32::MAX]).into(),
+            Series::new("x".into(), Vec::<u64>::new()).into(),
+            Series::new("x".into(), &[Some(0u64), None, Some(u64::MAX)]).into(),
+            Series::new("x".into(), &[Some(u64::MAX), None]).into(),
+            Series::new("x".into(), &[None, Some(1u8)]).into(),
+            Series::new("x".into(), &[Some(256u32), None]).into(),
+            Series::new("x".into(), &[0i64, 42, -1]).into(),
+            Series::new("x".into(), &[0.0f64, 42.0, 256.0]).into(),
+        ];
+        for column in &cases {
+            macro_rules! compare {
+                ($f:ident) => {{
+                    let reference = $f::<0>(column).map_err(|e| e.to_string());
+                    assert_eq!($f::<1>(column).map_err(|e| e.to_string()), reference);
+                    assert_eq!($f::<2>(column).map_err(|e| e.to_string()), reference);
+                }};
+            }
+            compare!(integer_u64);
+            compare!(integer_u32);
+            compare!(integer_u8);
+        }
+        assert_eq!(integer_u64::<2>(&cases[1])?, vec![0, 255]);
+        assert!(integer_u8::<2>(&cases[2]).is_err());
+        assert_eq!(integer_u32::<2>(&cases[3])?, Vec::<u32>::new());
+        Ok(())
     }
 }

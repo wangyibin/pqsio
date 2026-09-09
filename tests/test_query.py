@@ -109,6 +109,15 @@ class Queries(unittest.TestCase):
         if quality=='q1':root=root/'q1'
         return root/(root/'CURRENT').read_text()
 
+    def test_zero_mapq_complete_boundary_still_filters_regions(self):
+        path = self.concat(name='zero-mapq-query')
+        self.build_both(path)
+        for regions in ([], [('chr1', 2**32+53, 2**32+54)]):
+            rows, _ = self.compare(path, regions, min_mapq=0,
+                                   boundary='complete_reads',
+                                   filter_mode='matching_alignments', batch_rows=1)
+            self.assertLess(len(rows), 10)
+
     def test_pairs_combinations_boundaries_duplicates(self):
         path=self.pairs(); self.build_both(path)
         region_sets=[[], [('chr1',0,1)], [('chr1',9,10)], [('chr1',10,11)],

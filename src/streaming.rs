@@ -260,7 +260,9 @@ impl StreamingReader {
                 }) {
                     out = ConcatColumns::default();
                 }
-            } else {
+            } else if self.min_mapq > 0 || self.query.is_some() {
+                // With no predicate every alignment is retained; reuse the
+                // assembled read instead of allocating and copying all columns.
                 let mut filtered = ConcatColumns::default();
                 let mut start = 0;
                 while start < out.read_idx.len() {
