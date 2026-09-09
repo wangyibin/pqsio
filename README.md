@@ -9,20 +9,42 @@ The library is independent of CPhasing's phasing/alignment algorithms. It uses
 the same Polars 0.49.1 Parquet implementation and metadata conventions as the
 surrounding project. Existing CPhasing/Chromap commands are not modified.
 
-## Build in this workspace
+## Pixi development environment
 
-From `/data3/wangyb/0.CPhasing/v4.0`:
+From the `pqsio` repository directory:
 
 ```sh
-pixi run --manifest-path cphasing-rs/pixi.toml cargo build --offline --manifest-path pqsio/Cargo.toml --profile dev-release -j 4
-pixi run --manifest-path cphasing-rs/pixi.toml cargo test --offline --manifest-path pqsio/Cargo.toml --profile dev-release -j 4
+pixi install --locked
+pixi run build          # dev-release; native shared/static/Rust libraries
+pixi run test           # standalone Rust, Python, C11 and C++17 tests
+pixi run lint           # strict Clippy, using dev-release
 ```
 
-The artifacts are `pqsio/target/dev-release/libpqsio.so` (Linux), `libpqsio.a`,
-and an ordinary Rust library. The new Cargo.lock starts from the surrounding
-project's dependency versions; no parent lockfile is changed. Outside this
-workspace, use Cargo directly with a compatible toolchain (tested with Rust 1.91.1).
-First-time builds require the dependencies to be cached or network access.
+`pixi.toml` manages the Rust 1.91 toolchain, C/C++ compilers and build tools,
+plus Python 3.11 and Polars 0.20.29 for tests only. Rust library dependencies
+remain in `Cargo.toml` / `Cargo.lock`, including Polars 0.49.1. The base Python
+package still has no third-party runtime dependencies. `pixi.lock` pins the
+development environments; `.pixi/` is local and ignored by Git.
+
+Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
+`target/dev-release/libpqsio.so`, plus four Polars/Rayon threads. Use
+`pixi run python` for an interpreter configured to use the development library.
+The standalone test task does not require the sibling CPhasing checkout.
+
+Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
+and `test-parallel`. Python/native tests build the shared library first.
+`pixi run bench-columns --rows 80000 --repetitions 5` explicitly runs the synthetic
+benchmark; normal builds/tests do not run it. `pixi run build-release` is reserved
+for final release artifacts under `target/release/`; development and debug work
+use `dev-release`. To use release libraries in Python, explicitly override
+`PQSIO_LIBRARY` after activation.
+
+From the parent workspace, use `pixi run --manifest-path pqsio/pixi.toml build`.
+The manifest targets Linux x86-64 and aarch64; platform validation is documented
+below. First installation/build needs cached packages or network access.
+Cargo tasks use `--locked`; add `CARGO_NET_OFFLINE=true` when all Rust crates are
+cached and offline operation is required. Use `pixi install --locked` to verify
+reproducibility; run `pixi lock` deliberately when changing development dependencies.
 
 ## Rust
 
@@ -190,16 +212,32 @@ reader after an error. Explicitly finish writers; destruction only cleans up.
 ## Verification
 
 ```sh
-export PQSIO_LIBRARY="$PWD/pqsio/target/dev-release/libpqsio.so"
-PYTHONPATH=pqsio/python python -m unittest discover -s pqsio/tests -p test_python.py -v
-# Polars/CPhasing are test-only dependencies for compatibility checks:
-PYTHONPATH=pqsio/python:CPhasing python -m unittest discover -s pqsio/tests -p 'test_*.py' -v
+# From pqsio; these tasks configure paths and build the development library:
+pixi run test
+pixi run lint
 ```
 
-Rust tests cover long positions, MAPQ filtering, complete/oversized concat
-reads, invalid input, abort cleanup and output collisions. Python/C/C++ tests
-exercise the actual shared library. Small independent Polars fixtures test
-legacy shard layouts and schema compatibility.
+Rust and standalone Python/C/C++ tests cover row/column cross-path I/O, long
+positions, MAPQ filtering, complete/oversized concat reads, invalid input,
+buffer lifetimes, abort cleanup and output collisions. Independent Polars
+fixtures in the column tests cover legacy shard-local read IDs and disk schemas.
+The historical-library test skips when its named archived v0.0.1 library is
+absent from a fresh checkout.
+
+The standalone Pixi environment was validated on Linux x86-64 with Rust 1.91.1
+and Python 3.11.16: 16 Rust tests and 27 Python/native tests passed. Native tests
+honor activated `CC`/`CXX` (falling back to `cc`/`c++` outside Pixi). The aarch64
+environment is resolved in the lockfile but has not been built or run here.
+
+The additional `tests/test_compatibility.py` integration suite requires a
+separately configured full CPhasing environment (its Python dependencies and
+optionally its Rust executable), rather than the standalone Pixi environment.
+Run it from the parent workspace with that environment's Python:
+
+```sh
+PQSIO_LIBRARY="$PWD/pqsio/target/dev-release/libpqsio.so" PYTHONPATH=pqsio/python:CPhasing python -m unittest discover -s pqsio/tests -p test_compatibility.py -v
+```
+
 
 ## Current scope
 

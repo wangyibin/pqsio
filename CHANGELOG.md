@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.5 — 2026-09-09
+
+- Add a standalone, lockfile-pinned Pixi development environment for the
+  supported Linux x86-64 and aarch64 platforms, including Rust, C/C++ and
+  Python test tooling.
+- Provide focused build, test, lint and opt-in benchmark tasks; keep release
+  artifacts an explicit separate task.
+- Document the self-contained workflow and compatibility-test boundary, and
+  honor activated C and C++ compiler settings in native ABI tests.
+
 ## 0.0.4 — 2026-09-09
 
 - Add synchronous typed columnar pairs/concat writing and reading in Rust, C,

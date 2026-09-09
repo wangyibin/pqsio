@@ -12,3 +12,6 @@ __pycache__/
 
 /benchmarks/work/
 /benchmarks
+
+# Local Pixi environments; pixi.lock is tracked.
+/.pixi/

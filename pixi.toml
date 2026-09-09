@@ -1,0 +1,44 @@
+[workspace]
+name = "pqsio"
+version = "0.0.5"
+description = "Pairs and concat PQS storage for Rust, C, C++ and Python"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+
+[system-requirements]
+linux = "3.10.0"
+libc = "2.17"
+
+[feature.build.dependencies]
+rust = ">=1.91.1,<1.92"
+c-compiler = ">=1.9.0,<2"
+cxx-compiler = ">=1.9.0,<2"
+make = ">=4.3,<5"
+cmake = ">=4.0.2,<5"
+pkg-config = "0.29.*"
+
+[feature.test.dependencies]
+python = "3.11.*"
+# Test-only, matching the existing compatibility-test environment.
+polars = "==0.20.29"
+
+[environments]
+default = { features = ["build", "test"] }
+
+[activation.env]
+PYTHONPATH = "$PIXI_PROJECT_ROOT/python"
+PQSIO_LIBRARY = "$PIXI_PROJECT_ROOT/target/dev-release/libpqsio.so"
+POLARS_MAX_THREADS = "4"
+RAYON_NUM_THREADS = "4"
+
+[tasks]
+build = { cmd = "cargo build --locked --profile dev-release -j 4", description = "Build native libraries for development" }
+build-release = { cmd = "cargo build --locked --release -j 4", description = "Build final release libraries explicitly" }
+test-rust = { cmd = "cargo test --locked --profile dev-release -j 4" }
+test-python = { cmd = "python -m unittest discover -s tests -p test_python.py -v", depends-on = ["build"] }
+test-columns = { cmd = "python -m unittest discover -s tests -p test_columns.py -v", depends-on = ["build"] }
+test-native = { cmd = "python -m unittest discover -s tests -p test_native.py -v", depends-on = ["build"] }
+test-parallel = { cmd = "python -m unittest discover -s tests -p test_parallel.py -v", depends-on = ["build"] }
+test = { depends-on = ["test-rust", "test-python", "test-columns", "test-native", "test-parallel"], description = "Run standalone Rust, Python, C and C++ tests" }
+lint = { cmd = "cargo clippy --locked --profile dev-release --all-targets -j 4 -- -D warnings" }
+bench-columns = { cmd = "python scripts/columnar_bench.py", depends-on = ["build"], description = "Run the synthetic columnar benchmark (explicit opt-in)" }

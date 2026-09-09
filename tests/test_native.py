@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import subprocess
+import shlex
 import tempfile
 import unittest
 from pqsio import Reader
@@ -9,14 +10,16 @@ from pqsio import Reader
 PROJECT=Path(__file__).resolve().parents[1]
 OUTPUT=PROJECT/"tests/output"
 OUTPUT.mkdir(exist_ok=True)
+CC = shlex.split(os.environ.get("CC", "cc"))
+CXX = shlex.split(os.environ.get("CXX", "c++"))
 
 class NativeABI(unittest.TestCase):
     def test_columnar_c_cpp(self):
         lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
-        for compiler,source,standard in (("cc","columns.c","c11"),("c++","columns.cpp","c++17")):
+        for compiler,source,standard in ((CC,"columns.c","c11"),(CXX,"columns.cpp","c++17")):
             with self.subTest(source=source), tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:
                 exe=Path(tmp)/"columns"
-                subprocess.run([compiler,"-std="+standard,"-Wall","-Wextra","-Werror",
+                subprocess.run(compiler + ["-std="+standard,"-Wall","-Wextra","-Werror",
                     "-I",str(PROJECT/"include"),str(PROJECT/"tests"/source),
                     "-L",str(lib.parent),"-lpqsio","-Wl,-rpath,"+str(lib.parent),"-o",str(exe)],
                     check=True,capture_output=True,text=True,timeout=60)
@@ -30,7 +33,7 @@ class NativeABI(unittest.TestCase):
         lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
         with tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:
             exe=Path(tmp)/"parallel"
-            subprocess.run(["c++","-std=c++17","-pthread","-Wall","-Wextra","-Werror","-I",str(PROJECT/"include"),
+            subprocess.run(CXX + ["-std=c++17","-pthread","-Wall","-Wextra","-Werror","-I",str(PROJECT/"include"),
                 str(PROJECT/"tests/parallel.cpp"),"-L",str(lib.parent),"-lpqsio","-Wl,-rpath,"+str(lib.parent),
                 "-o",str(exe)],check=True,capture_output=True,text=True,timeout=60)
             path=Path(tmp)/"parallel.pqs"
@@ -42,17 +45,17 @@ class NativeABI(unittest.TestCase):
         lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
         with tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:
             exe=Path(tmp)/"bulk"
-            subprocess.run(["c++","-std=c++17","-Wall","-Wextra","-Werror","-I",str(PROJECT/"include"),
+            subprocess.run(CXX + ["-std=c++17","-Wall","-Wextra","-Werror","-I",str(PROJECT/"include"),
                 str(PROJECT/"tests/bulk.cpp"),"-L",str(lib.parent),"-lpqsio","-Wl,-rpath,"+str(lib.parent),
                 "-o",str(exe)],check=True,capture_output=True,text=True,timeout=60)
             subprocess.run([str(exe),str(Path(tmp)/"concat.pqs")],check=True,capture_output=True,text=True,timeout=60)
 
     def test_c_and_cpp_read_write_both_formats(self):
         lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
-        for compiler,source,standard in (("cc","smoke.c","c11"),("c++","smoke.cpp","c++17")):
+        for compiler,source,standard in ((CC,"smoke.c","c11"),(CXX,"smoke.cpp","c++17")):
             with self.subTest(language=source), tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:
                 exe=Path(tmp)/"smoke"
-                subprocess.run([compiler,"-std="+standard,"-Wall","-Wextra","-Werror",
+                subprocess.run(compiler + ["-std="+standard,"-Wall","-Wextra","-Werror",
                     "-I",str(PROJECT/"include"),str(PROJECT/"tests"/source),
                     "-L",str(lib.parent),"-lpqsio","-Wl,-rpath,"+str(lib.parent),"-o",str(exe)],
                     check=True,capture_output=True,text=True,timeout=60)
