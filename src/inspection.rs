@@ -44,6 +44,7 @@ pub struct Inspection {
     pub contigs: Vec<Contig>,
     pub declared_counts: BTreeMap<String, Value>,
     pub shards: Vec<ShardInfo>,
+    pub copy_numbers: Value,
 }
 impl Inspection {
     pub fn to_value(&self) -> Value {
@@ -54,6 +55,7 @@ impl Inspection {
         };
         obj([
             ("metadata", self.metadata.to_value()),
+            ("copy_numbers", self.copy_numbers.clone()),
             ("coordinates", Value::from(coordinates)),
             (
                 "read_idx_scope",
@@ -217,7 +219,16 @@ pub fn inspect(path: impl AsRef<Path>) -> Result<Inspection> {
             });
         }
     }
+    let copy_numbers = match copy_numbers::read_with_contigs(path, &contigs) {
+        Ok(cn) => cn.to_value(),
+        Err(e) => obj([
+            ("status", Value::from(if e.downcast_ref::<copy_numbers::CopyNumberError>().is_some() { "invalid" } else { "unreadable" })),
+            ("present", match fs::symlink_metadata(path.join("cn.info")) { Ok(_) => Value::Bool(true), Err(_) => Value::Null }),
+            ("error", Value::from(format!("{e:#}").as_str())),
+        ]),
+    };
     Ok(Inspection {
+        copy_numbers,
         metadata,
         contigs,
         declared_counts,
@@ -375,6 +386,14 @@ pub fn validate(
             "q0_q1_consistency",
         ]);
         return Ok(report);
+    }
+    match read_copy_numbers(path) {
+        Ok(_) => {},
+        Err(e) => {
+            if let Some(cn) = e.downcast_ref::<copy_numbers::CopyNumberError>() {
+                report.issue("error", cn.code, &cn.file, Some(cn.line), Some(&cn.contig), cn.to_string());
+            } else { report.incomplete("CN_UNREADABLE", "cn.info", format!("{e:#}")); }
+        }
     }
     for name in [
         "_metadata",

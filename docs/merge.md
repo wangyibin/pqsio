@@ -79,14 +79,14 @@ JSON implementations. Source indices are zero-based JSON integers.
 `_merge_sources.jsonl`: one line per input, including empty inputs:
 
 ```json
-{"schema_version":1,"source_index":0,"path_label":"a.pqs","format_version":"0.2.0","input_read_id_scope":"shard","input_records":"8","output_records":"8","output_reads":"3","omitted_sidecars":["cn.info"]}
+{"schema_version":1,"source_index":0,"path_label":"a.pqs","format_version":"0.2.0","input_read_id_scope":"shard","input_records":"8","output_records":"8","output_reads":"3","copy_numbers_propagated":true,"omitted_sidecars":[]}
 ```
 
 `input_read_id_scope: null` means absent metadata (implicit legacy global).
 Path labels use caller spelling; Rust non-UTF-8 path labels use lossy Unicode
 rendering. Source indices remain unambiguous. Omitted sidecars list immediate
-input entries other than regenerated standard files and q0/q1, including older
-merge sidecars. No recursion or application-specific interpretation is done.
+input entries other than regenerated standard files, q0/q1 and propagated CN,
+including older merge sidecars. Other application content is not interpreted.
 `_readme`, metadata and counts are regenerated, not copied.
 
 `_merge_reads.jsonl`: concat only, one line per output logical read:
@@ -105,8 +105,10 @@ merge sidecars. No recursion or application-specific interpretation is done.
 
 The mapping is streamed, never accumulated for the whole dataset. Disabling
 provenance generates neither sidecar and does not capture origin columns.
-No `cn.info` or other application sidecars are copied/merged; their names remain
-in the result even when provenance is disabled. This is not lossless merging of
+`cn.info` is merged as explicit declarations before record writing; conflicts fail
+with both sources. Missing declarations do not conflict with explicit CN values.
+Any input CN file, even empty, produces an output file. Other application sidecars
+remain omitted, including when provenance is disabled. See [CN rules](copy-numbers.md). This is not lossless merging of
 arbitrary PQS application content.
 
 ## Memory and failure handling

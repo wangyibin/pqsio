@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.11"
+__version__ = "0.0.12"
 
 @dataclass
 class Pair:
@@ -151,12 +151,19 @@ def _decode(row, cls):
     return cls(**values)
 
 class _Writer:
-    def __init__(self, path, contigs, chunk_size=1_000_000):
+    def __init__(self, path, contigs, chunk_size=1_000_000, *, copy_numbers=None):
         self._handle = C.c_void_p()
         self._lib = _library()
         entries = list(contigs.items()) if hasattr(contigs, "items") else list(contigs)
         cs = (_Contig * len(entries))(*[_Contig(_utf8(n), _uint(s, 64)) for n, s in entries])
         _check(self._lib.pqsio_writer_open(_utf8(os.fspath(path)), self._kind, cs, len(cs), _uint(chunk_size, C.sizeof(C.c_size_t)*8), C.byref(self._handle)))
+        if copy_numbers is not None:
+            try:
+                from .copy_numbers import _writer_set
+                _writer_set(self, copy_numbers)
+            except BaseException:
+                self.close()
+                raise
     def _active(self):
         if not self._handle.value:
             raise RuntimeError("Writer is closed")
@@ -487,3 +494,5 @@ from .merge import MergeResult, merge
 from .query import QueryReader, build_index
 
 from .subset import SubsetResult, subset
+
+from .copy_numbers import CopyNumbers, read_copy_numbers, set_copy_numbers, update_copy_numbers

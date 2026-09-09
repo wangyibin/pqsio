@@ -7,6 +7,8 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
 };
+pub mod copy_numbers;
+pub use copy_numbers::{CopyNumbers, read_copy_numbers, set_copy_numbers, update_copy_numbers};
 pub mod subset;
 pub use subset::{subset, SubsetOptions, SubsetResult, ReadIds};
 pub mod merge;

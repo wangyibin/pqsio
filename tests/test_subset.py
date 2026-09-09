@@ -153,7 +153,7 @@ class Subset(unittest.TestCase):
 
     def test_provenance_index_and_source_unchanged(self):
         src = self.pairs()
-        (src/'cn.info').write_text('application data')
+        (src/'cn.info').write_text('a\t3\n')
         def digest():
             return {str(f.relative_to(src)):hashlib.sha256(f.read_bytes()).hexdigest() for f in src.rglob('*') if f.is_file()}
         before = digest()
@@ -164,9 +164,9 @@ class Subset(unittest.TestCase):
         out = self.check(src,regions=[('a',0,20)])
         self.assertEqual(expected,self.rows(out))
         manifest = json.loads((out/'_subset.json').read_text())
-        self.assertIn('cn.info',manifest['result']['omitted_sidecars'])
+        self.assertNotIn('cn.info',manifest['result']['omitted_sidecars'])
         self.assertIn('.pqsio-index',manifest['result']['omitted_sidecars'])
-        self.assertFalse((out/'cn.info').exists())
+        self.assertEqual(p.read_copy_numbers(out).explicit, {'a': 3})
 
     def test_invalid_and_paths(self):
         src = self.pairs()

@@ -29,11 +29,13 @@ pub struct MergeSource {
     pub output_records: u64,
     pub output_reads: u64,
     pub omitted_sidecars: Vec<String>,
+    pub copy_numbers_present: bool,
 }
 impl MergeSource {
     pub fn to_value(&self) -> Value {
         obj([
             ("schema_version", Value::from(1)),
+            ("copy_numbers_propagated", Value::Bool(self.copy_numbers_present)),
             ("source_index", Value::from(self.index as u64)),
             (
                 "path_label",
@@ -283,7 +285,7 @@ pub fn merge<P: AsRef<Path>>(
                 let name = entry?.file_name().to_string_lossy().into_owned();
                 if !matches!(
                     name.as_str(),
-                    "q0" | "q1" | "_metadata" | "_metadata_counts" | "_contigsizes" | "_readme"
+                    "q0" | "q1" | "_metadata" | "_metadata_counts" | "_contigsizes" | "_readme" | "cn.info"
                 ) {
                     omitted_sidecars.push(name);
                 }
@@ -300,6 +302,7 @@ pub fn merge<P: AsRef<Path>>(
                     input_records: 0,
                     output_records: 0,
                     output_reads: 0,
+                    copy_numbers_present: fs::symlink_metadata(path.join("cn.info")).is_ok(),
                     omitted_sidecars,
                 },
             })
@@ -307,8 +310,21 @@ pub fn merge<P: AsRef<Path>>(
         .with_context(|| format!("merge input {index}: {}", path.display()))?;
         prepared.push(input);
     }
+    let mut cn = std::collections::BTreeMap::new();
+    let mut origins = HashMap::new();
+    let mut cn_present = false;
+    for input in &prepared {
+        let info = copy_numbers::read_with_contigs(&input.canonical, &contigs)?;
+        cn_present |= info.present;
+        for (name, value) in info.explicit {
+            if let Some(previous) = cn.insert(name.clone(), value) {
+                ensure!(previous == value, "cn.info conflict for contig {name:?}: {} declares {previous}, {} declares {value}", origins[&name], input.canonical.display());
+            } else { origins.insert(name, input.canonical.display().to_string()); }
+        }
+    }
     let kind = kind.unwrap();
     let mut writer = Writer::create(&target, kind, contigs, options.chunk_size)?;
+    if cn_present { writer.set_copy_numbers(&cn)?; }
     // Declared after Writer so handles close before its Drop removes staging.
     let mut manifest = if options.provenance {
         Some(BufWriter::new(writer.merge_sidecar(false)?))

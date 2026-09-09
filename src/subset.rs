@@ -50,6 +50,7 @@ pub struct SubsetResult {
     pub fallback_reason: String,
     pub provenance: Option<PathBuf>,
     pub omitted_sidecars: Vec<String>,
+    pub copy_numbers_present: bool,
 }
 impl SubsetResult {
     pub fn to_value(&self) -> Value {
@@ -89,6 +90,7 @@ impl SubsetResult {
                     .map(|p| Value::from(p.to_string_lossy().as_ref()))
                     .unwrap_or(Value::Null),
             ),
+            ("copy_numbers_propagated", Value::Bool(self.copy_numbers_present)),
             (
                 "omitted_sidecars",
                 Value::List(
@@ -275,7 +277,7 @@ fn subset_inner(input: &Path, output: &Path, o: SubsetOptions) -> Result<SubsetR
         let name = entry?.file_name().to_string_lossy().into_owned();
         if !matches!(
             name.as_str(),
-            "q0" | "q1" | "_metadata" | "_metadata_counts" | "_contigsizes" | "_readme"
+            "q0" | "q1" | "_metadata" | "_metadata_counts" | "_contigsizes" | "_readme" | "cn.info"
         ) {
             omitted_sidecars.push(name);
         }
@@ -285,10 +287,13 @@ fn subset_inner(input: &Path, output: &Path, o: SubsetOptions) -> Result<SubsetR
         chroms.as_ref().is_none_or(|cs| cs.contains(&chrom))
             && (o.regions.is_none() || predicate.overlap(chrom, start, end))
     };
+    let cn = copy_numbers::read_with_contigs(&canonical, &contigs)?;
     let mut writer = Writer::create(&target, kind, contigs, o.chunk_size)?;
+    if cn.present { writer.set_copy_numbers(&cn.explicit)?; }
     let mut result = SubsetResult { output: target.clone(), kind, counts: Counts::default(),
         scanned_records: 0, full_scan: false, index_used: false,
         fallback_reason: "subset uses sequential q0 scan to preserve logical IDs, order and complete read groups; region index has no read locator".into(),
+        copy_numbers_present: cn.present,
         provenance: o.provenance.then(|| target.join("_subset.json")), omitted_sidecars };
     while let Some(batch) = reader.next_columns()? {
         match batch {

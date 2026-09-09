@@ -134,3 +134,7 @@ emitted a categorical re-encoding warning when combining q1 shards; tests passed
 No whole-genome run, throughput/RSS measurement, external CPhasing integration
 suite, alternate-platform build, or general unordered comparison was performed.
 No dependencies or lockfiles were changed. Released as v0.0.8.
+
+Optional `cn.info` is included as structured `copy_numbers` inspection data and
+checked in quick mode. Local malformed/unreadable CN diagnostics do not prevent
+other core checks. See [CN fields, codes and limits](copy-numbers.md).

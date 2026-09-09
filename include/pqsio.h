@@ -192,6 +192,15 @@ int32_t pqsio_build_index_quality(const char *, uint32_t quality, uint32_t rebui
 int32_t pqsio_query_open(const char *, const pqsio_region *, size_t,
     uint8_t, uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, pqsio_stream **);
 int32_t pqsio_query_stats_json(const pqsio_stream *, pqsio_json_callback, void *);
+/* Optional cn.info, additive API. CN range: 1..UINT64_MAX.
+ * Entries and names live for the call; duplicate names are errors.
+ * update: 0 replaces all declarations (empty creates an empty file),
+ * 1 merges keys (empty does not write). JSON uses inspection callback rules.
+ * Writer setting errors poison the writer; call before publication. */
+typedef struct { const char *contig; uint64_t copy_number; } pqsio_copy_number;
+int32_t pqsio_read_copy_numbers_json(const char *, pqsio_json_callback, void *);
+int32_t pqsio_set_copy_numbers(const char *, const pqsio_copy_number *, size_t, uint32_t update);
+int32_t pqsio_writer_set_copy_numbers(pqsio_writer *, const pqsio_copy_number *, size_t);
 #ifdef __cplusplus
 }
 #endif

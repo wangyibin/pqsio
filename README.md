@@ -32,8 +32,8 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
-`test-parallel`, `test-streaming`, `test-query`, `test-inspection`, `test-merge`
-and `test-subset`. Python/native tests build the shared library first. `pixi run bench-columns --rows
+`test-parallel`, `test-streaming`, `test-query`, `test-inspection`, `test-merge`,
+`test-subset`, and `test-copy-numbers`. Python/native tests build the shared library first. `pixi run bench-columns --rows
 80000 --repetitions 5`, `pixi run bench-streaming` and `pixi run bench-query`
 explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved
@@ -69,8 +69,8 @@ See [subset API, semantics and memory limits](docs/subset.md).
 `pqsio.merge(inputs, output, chunk_size=1_000_000, batch_rows=65_536,
 provenance=True)` merges caller-ordered pairs or concat datasets through the
 native column pipeline. It unions contigs, preserves pairs IDs, assigns global
-concat IDs, and rebuilds q1 from q0. Application sidecars (including `cn.info`)
-are not propagated. See [merge contracts, provenance and memory limits](docs/merge.md).
+concat IDs, and rebuilds q1 from q0. Explicit `cn.info` declarations are merged with conflict checks; other application
+sidecars are not propagated. See [merge contracts, provenance and memory limits](docs/merge.md).
 
 ## Rust
 
@@ -315,3 +315,8 @@ Public `StreamingReader` automatically reads q1 for positive `min_mapq` on pairs
 and global-ID concat matching queries. MAPQ zero, complete-read filtering and
 legacy shard-local concat use q0. Batch boundaries do not change this selection;
 see [streaming semantics](docs/streaming.md).
+
+## Copy numbers
+
+Optional `cn.info` supports structured read/set/update, staged Writer creation,
+merge/subset propagation, and quick validation. See [API and compatibility rules](docs/copy-numbers.md).

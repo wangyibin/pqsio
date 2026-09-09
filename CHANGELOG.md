@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.12 — 2026-09-09
+
+- Add optional structured `cn.info` read, set, and update APIs for Rust, Python,
+  and C, including staged writer configuration.
+- Validate explicit copy-number declarations against known contigs, distinguish a
+  missing file from a legal empty file, and surface diagnostics through inspect
+  and quick validation.
+- Propagate explicit copy-number declarations through merge and subset with
+  conflict checks, bounded provenance reporting, and atomic replacement safety.
+
 ## 0.0.11 — 2026-09-09
 
 - Add q0-only, order-preserving subset export for Rust, Python and the C ABI,

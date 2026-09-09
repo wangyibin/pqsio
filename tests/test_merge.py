@@ -58,7 +58,8 @@ class Merge(unittest.TestCase):
         a = self.pairs('z', {'a': 100, 'unused': 200}, [p.Pair('same', 0, 1, 1, 2, '+', '-', 0)])
         b = self.pairs('a', {'long': 2**34, 'a': 100}, [p.Pair('same', 1, 2, 0, 2**33, '-', '+', 60)])
         empty = self.pairs('empty', {'extra': 300}, [])
-        (a/'cn.info').write_text('not propagated')
+        (a/'cn.info').write_text('a\t3\n')
+        (a/'application.info').write_text('not propagated')
         # Broken q1 is intentionally ignored and reconstructed from q0.
         next((b/'q1').glob('*.parquet')).write_bytes(b'broken q1')
         out = self.root/'merged'
@@ -70,10 +71,10 @@ class Merge(unittest.TestCase):
         self.assertEqual((rows[1].chrom1, rows[1].chrom2, rows[1].pos2), (0, 2, 2**33))
         self.assertEqual(len(self.records(out, 1)), 1)
         self.assertEqual(result['counts']['q0_records'], 2)
-        self.assertEqual(result['sources'][0]['omitted_sidecars'], ['cn.info'])
+        self.assertEqual(result['sources'][0]['omitted_sidecars'], ['application.info'])
         manifest = [json.loads(s) for s in (out/'_merge_sources.jsonl').read_text().splitlines()]
         self.assertEqual(manifest[2]['input_records'], '0')
-        self.assertFalse((out/'cn.info').exists())
+        self.assertEqual(p.read_copy_numbers(out).explicit, {'a': 3})
         self.assertEqual(p.validate(out, 'full').status, 'valid')
         self.assertEqual(pl.read_parquet(next((out/'q0').glob('*.parquet'))).schema['pos1'], pl.UInt64)
 

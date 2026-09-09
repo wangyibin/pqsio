@@ -1157,3 +1157,49 @@ pub unsafe extern "C" fn pqsio_subset_json(
         Ok(0)
     })
 }
+
+/// # Safety
+/// Same path and callback contract as pqsio_inspect_json.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_read_copy_numbers_json(path: *const c_char, callback: Option<JsonCallback>, user: *mut c_void) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let json = read_copy_numbers(text(path)?)?.to_value().json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0, "JSON callback failed");
+        Ok(0)
+    })
+}
+#[repr(C)]
+pub struct CCopyNumber { pub contig: *const c_char, pub copy_number: u64 }
+unsafe fn cn_values(entries: *const CCopyNumber, n: usize) -> Result<std::collections::BTreeMap<String,u64>> {
+    let mut values = std::collections::BTreeMap::new();
+    for entry in slice(entries, n)? {
+        let name = text(entry.contig)?;
+        ensure!(values.insert(name.clone(), entry.copy_number).is_none(), "cn.info duplicate contig {name:?}");
+    }
+    Ok(values)
+}
+/// # Safety
+/// Valid UTF-8 path and readable n entries with NUL-terminated UTF-8 names.
+/// update must be 0 (replace) or 1 (merge). Values are uint64_t, at least 1.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_set_copy_numbers(path: *const c_char, entries: *const CCopyNumber, n: usize, update: u32) -> i32 {
+    call(|| {
+        ensure!(update <= 1, "update must be 0 or 1");
+        let values = cn_values(entries, n)?;
+        if update == 1 { update_copy_numbers(text(path)?, &values)?; }
+        else { set_copy_numbers(text(path)?, &values)?; }
+        Ok(0)
+    })
+}
+/// # Safety
+/// Live synchronous writer, and readable entries as in pqsio_set_copy_numbers.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_writer_set_copy_numbers(writer: *mut Writer, entries: *const CCopyNumber, n: usize) -> i32 {
+    call(|| {
+        let writer = writer.as_mut().context("null writer")?;
+        let result = (|| { writer.set_copy_numbers(&cn_values(entries, n)?)?; Ok(0) })();
+        if result.is_err() { writer.failed = true; }
+        result
+    })
+}

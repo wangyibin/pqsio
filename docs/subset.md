@@ -79,8 +79,10 @@ loading or executable query language.
 The complete ordered contig table is retained, including in empty outputs.
 Coordinates, identity, filter_reason, read_length and query coordinates are
 preserved. Writer rebuilds counts, shards and q1, whose threshold remains
-**MAPQ >= 1**, independently of the selection threshold. Application sidecars
-such as cn.info and index files are not copied. This extracts core records;
+**MAPQ >= 1**, independently of the selection threshold. All explicit `cn.info` declarations are retained with the full contig table,
+even for empty results; missing CN remains missing. Result and provenance include
+`copy_numbers_propagated`. Other application sidecars and index files are not copied.
+See [CN rules](copy-numbers.md). This extracts core records;
 it does not promise lossless extraction of arbitrary application metadata.
 
 ## Scan, memory and index policy
