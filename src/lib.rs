@@ -7,6 +7,8 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
 };
+pub mod merge;
+pub use merge::{merge, MergeOptions, MergeResult, MergeSource};
 pub mod metadata;
 pub mod inspection;
 pub use metadata::Metadata;
@@ -338,6 +340,19 @@ impl Writer {
         self.concat.clear();
         self.shard += 1;
         Ok(())
+    }
+    // Only merge's fixed sidecars can be created; Writer retains cleanup ownership.
+    pub(crate) fn merge_sidecar(&mut self, reads: bool) -> Result<File> {
+        self.active()?;
+        let name = if reads { "_merge_reads.jsonl" } else { "_merge_sources.jsonl" };
+        let result = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(self.staging.join(name));
+        if result.is_err() {
+            self.failed = true;
+        }
+        Ok(result?)
     }
     pub fn finish(&mut self) -> Result<Counts> {
         self.active()?;

@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 
 @dataclass
 class Pair:
@@ -478,3 +478,5 @@ class StreamingReader(Reader):
         raise NotImplementedError("Use iter_batches with boundary='complete_reads'; batches may contain multiple reads")
 
 from .inspection import Metadata, Inspection, ValidationReport, inspect, validate
+
+from .merge import MergeResult, merge

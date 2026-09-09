@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.9 — 2026-09-09
+
+- Add caller-ordered, q0-only streaming merge APIs for Rust, Python and the C
+  ABI; union contigs, remap chromosome IDs, preserve pairs IDs and assign fresh
+  global concat read IDs.
+- Regenerate q1 from q0, use staged atomic publication, and optionally write
+  JSONL source/read provenance without copying application sidecars.
+- Reject duplicate/overlapping paths, incompatible formats or contigs, invalid
+  read grouping and unsupported input semantics; add rollback and cross-binding
+  regression coverage.
+
 ## 0.0.8 — 2026-09-09
 
 - Add non-executing structured metadata parsing shared by readers.

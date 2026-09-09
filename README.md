@@ -32,8 +32,8 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
-`test-parallel`, `test-streaming` and `test-inspection`. Python/native tests build
-the shared library first. `pixi run bench-columns --rows 80000 --repetitions 5` and `pixi run
+`test-parallel`, `test-streaming`, `test-inspection` and `test-merge`. Python/native
+tests build the shared library first. `pixi run bench-columns --rows 80000 --repetitions 5` and `pixi run
 bench-streaming` explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved
 for final release artifacts under `target/release/`; development and debug work
@@ -54,6 +54,14 @@ information. `pqsio.validate(path, level="quick" | "full")` returns a diagnostic
 report distinguishing invalid data from incomplete checks. Rust APIs and additive
 C JSON callbacks share the implementation. See [contracts and limits](docs/inspection.md).
 Run `pixi run test-inspection` for focused tests.
+
+## Streaming merge
+
+`pqsio.merge(inputs, output, chunk_size=1_000_000, batch_rows=65_536,
+provenance=True)` merges caller-ordered pairs or concat datasets through the
+native column pipeline. It unions contigs, preserves pairs IDs, assigns global
+concat IDs, and rebuilds q1 from q0. Application sidecars (including `cn.info`)
+are not propagated. See [merge contracts, provenance and memory limits](docs/merge.md).
 
 ## Rust
 

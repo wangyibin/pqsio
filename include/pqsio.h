@@ -163,6 +163,12 @@ int32_t pqsio_stream_destroy(pqsio_stream *);
 typedef int32_t (*pqsio_json_callback)(const uint8_t *, size_t, void *);
 int32_t pqsio_inspect_json(const char *, pqsio_json_callback, void *);
 int32_t pqsio_validate_json(const char *, uint32_t, size_t, pqsio_json_callback, void *);
+/* Additive ABI v1 merge capability. Inputs retain caller order, provenance is
+ * 0/1. Return 0 on success, -1 on error. Callback follows JSON contract above.
+ * Callback failure is reported AFTER publication; valid output remains.
+ * Inputs must stay unchanged throughout the call. See docs/merge.md. */
+int32_t pqsio_merge_json(const char *const *, size_t, const char *, size_t,
+                         size_t, uint32_t, pqsio_json_callback, void *);
 #ifdef __cplusplus
 }
 #endif

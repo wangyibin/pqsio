@@ -970,3 +970,35 @@ pub unsafe extern "C" fn pqsio_validate_json(
         Ok(0)
     })
 }
+
+/// Ordered synchronous merge, additive to ABI v1.
+/// # Safety
+/// inputs addresses n valid UTF-8 C strings; output is a valid C string.
+/// Callback borrows JSON only during the call, must not unwind or reenter.
+/// A callback error occurs after publication; the merged output remains valid.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_merge_json(
+    inputs: *const *const c_char,
+    n: usize,
+    output: *const c_char,
+    chunk_size: usize,
+    batch_rows: usize,
+    provenance: u32,
+    callback: Option<JsonCallback>,
+    user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        ensure!(n > 0 && !inputs.is_null(), "merge requires input paths");
+        ensure!(provenance <= 1, "provenance must be 0 or 1");
+        let paths = slice(inputs, n)?.iter()
+            .map(|&p| text(p)).collect::<Result<Vec<_>>>()?;
+        let result = merge(&paths, text(output)?, MergeOptions {
+            chunk_size, batch_rows, provenance: provenance == 1,
+        })?;
+        let json = result.to_json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0,
+            "merge succeeded and output was published, but result callback failed");
+        Ok(0)
+    })
+}

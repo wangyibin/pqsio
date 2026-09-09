@@ -29,9 +29,21 @@ impl Default for ReadOptions {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ReadOrigin {
+    pub logical_id: u64,
+    pub raw_id: u64,
+    pub shards: Vec<PathBuf>,
+}
+
 pub struct StreamingReader {
     pub(crate) source: Reader,
     options: ReadOptions,
+    capture_origin: bool,
+    raw_ids: Vec<u64>,
+    current_shard: PathBuf,
+    ready_origin: Option<ReadOrigin>,
+    pub(crate) origins: Vec<ReadOrigin>,
     min_mapq: u8,
     decoder: Option<(File, ParquetReader<File>, usize)>,
     pairs: PairColumns,
@@ -59,6 +71,11 @@ impl StreamingReader {
         Ok(Self {
             source,
             options,
+            capture_origin: false,
+            raw_ids: vec![],
+            current_shard: PathBuf::new(),
+            ready_origin: None,
+            origins: vec![],
             min_mapq,
             decoder: None,
             pairs: PairColumns::default(),
@@ -71,6 +88,9 @@ impl StreamingReader {
             eof: false,
             failed: false,
         })
+    }
+    pub(crate) fn capture_origins(&mut self) {
+        self.capture_origin = true;
     }
     pub fn kind(&self) -> Kind {
         self.source.kind
@@ -101,6 +121,7 @@ impl StreamingReader {
                     self.eof = true;
                     return Ok(false);
                 };
+                self.current_shard = path.clone();
                 let file = File::open(path)?;
                 self.decoder = Some((file.try_clone()?, ParquetReader::new(file), 0));
                 if self.source.shard_scoped {
@@ -129,6 +150,9 @@ impl StreamingReader {
             match self.source.frame_columns(decoder.finish()?)? {
                 ColumnBatch::Pairs(columns) => self.pairs = columns,
                 ColumnBatch::Concat(mut columns) => {
+                    if self.capture_origin {
+                        self.raw_ids.clone_from(&columns.read_idx);
+                    }
                     for id in &mut columns.read_idx {
                         let raw = *id;
                         if let Some(previous) = self.previous_raw {
@@ -163,6 +187,7 @@ impl StreamingReader {
     fn read(&mut self) -> Result<ConcatColumns> {
         loop {
             let mut out = ConcatColumns::default();
+            self.ready_origin = None;
             while self.ensure_alignment()? {
                 let start = self.position;
                 let id = self.alignments.read_idx[start];
@@ -171,6 +196,16 @@ impl StreamingReader {
                 }
                 let end =
                     start + self.alignments.read_idx[start..].partition_point(|&next| next == id);
+                if self.capture_origin {
+                    let origin = self.ready_origin.get_or_insert_with(|| ReadOrigin {
+                        logical_id: id,
+                        raw_id: self.raw_ids[start],
+                        shards: vec![],
+                    });
+                    if origin.shards.last() != Some(&self.current_shard) {
+                        origin.shards.push(self.current_shard.clone());
+                    }
+                }
                 out.append(self.alignments.as_view(), start, end);
                 self.position = end;
             }
@@ -217,6 +252,7 @@ impl StreamingReader {
         result
     }
     fn next_inner(&mut self) -> Result<Option<ColumnBatch>> {
+        self.origins.clear();
         let limit = self.options.batch_rows;
         if self.kind() == Kind::Pairs {
             let mut out = PairColumns::default();
@@ -272,6 +308,11 @@ impl StreamingReader {
                 } else {
                     remaining.min(limit - out.read_idx.len())
                 };
+                if self.capture_origin {
+                    if let Some(origin) = self.ready_origin.take() {
+                        self.origins.push(origin);
+                    }
+                }
                 out.append(
                     self.ready.as_view(),
                     self.ready_position,
