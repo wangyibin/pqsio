@@ -154,6 +154,15 @@ int32_t pqsio_stream_next_columns(pqsio_stream *, pqsio_column_batch **);
 int32_t pqsio_stream_kind(const pqsio_stream *);
 int32_t pqsio_stream_contigs(const pqsio_stream *, pqsio_contigs_callback, void *);
 int32_t pqsio_stream_destroy(pqsio_stream *);
+/* Read-only metadata/validation extension; resolve symbols for old libraries.
+ * JSON UTF-8 bytes are valid only during the callback; copy to retain them.
+ * Callback returns 0, must not throw/unwind or reenter the API.
+ * level: 0 quick, 1 full; max_issues > 0 caps stored examples, not scanning.
+ * Return 0 for a delivered report (including invalid/incomplete), -1 for an
+ * invocation error. Report status must be examined separately. */
+typedef int32_t (*pqsio_json_callback)(const uint8_t *, size_t, void *);
+int32_t pqsio_inspect_json(const char *, pqsio_json_callback, void *);
+int32_t pqsio_validate_json(const char *, uint32_t, size_t, pqsio_json_callback, void *);
 #ifdef __cplusplus
 }
 #endif

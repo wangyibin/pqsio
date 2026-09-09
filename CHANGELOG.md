@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.8 — 2026-09-09
+
+- Add non-executing structured metadata parsing shared by readers.
+- Add read-only Rust/Python inspect and quick/full validate APIs, additive C
+  JSON callbacks, bounded issue examples and raw row-group checks.
+- Distinguish proven errors, unsupported/incomplete checks and ordered q0/q1
+  mismatches; document compatibility and memory limits.
 ## 0.0.7 — 2026-09-09
 
 - Add owned column-batch output to `StreamingReader` in Rust, C, C++17 and

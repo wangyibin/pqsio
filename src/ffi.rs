@@ -922,3 +922,51 @@ pub unsafe extern "C" fn pqsio_stream_next_columns(
         result
     })
 }
+
+/// JSON bytes are borrowed only during this callback; return zero on success.
+pub type JsonCallback = unsafe extern "C" fn(*const u8, usize, *mut c_void) -> i32;
+/// # Safety
+/// path must be a live NUL-terminated UTF-8 string. Callback must not unwind,
+/// retain the buffer, or reenter this API. User data is forwarded unchanged.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_inspect_json(
+    path: *const c_char,
+    callback: Option<JsonCallback>,
+    user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let json = inspect(text(path)?)?.to_json();
+        ensure!(
+            cb(json.as_ptr(), json.len(), user) == 0,
+            "JSON callback failed"
+        );
+        Ok(0)
+    })
+}
+/// # Safety
+/// Same callback/pointer contract as pqsio_inspect_json. level: 0 quick, 1 full.
+/// Reports (including invalid/incomplete) return zero; invocation errors -1.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_validate_json(
+    path: *const c_char,
+    level: u32,
+    max_issues: usize,
+    callback: Option<JsonCallback>,
+    user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let level = match level {
+            0 => ValidationLevel::Quick,
+            1 => ValidationLevel::Full,
+            _ => bail!("level must be 0 (quick) or 1 (full)"),
+        };
+        let json = validate(text(path)?, level, max_issues)?.to_json();
+        ensure!(
+            cb(json.as_ptr(), json.len(), user) == 0,
+            "JSON callback failed"
+        );
+        Ok(0)
+    })
+}

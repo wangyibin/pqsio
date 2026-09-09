@@ -32,8 +32,8 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
-`test-parallel` and `test-streaming`. Python/native tests build the shared library
-first. `pixi run bench-columns --rows 80000 --repetitions 5` and `pixi run
+`test-parallel`, `test-streaming` and `test-inspection`. Python/native tests build
+the shared library first. `pixi run bench-columns --rows 80000 --repetitions 5` and `pixi run
 bench-streaming` explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved
 for final release artifacts under `target/release/`; development and debug work
@@ -46,6 +46,14 @@ below. First installation/build needs cached packages or network access.
 Cargo tasks use `--locked`; add `CARGO_NET_OFFLINE=true` when all Rust crates are
 cached and offline operation is required. Use `pixi install --locked` to verify
 reproducibility; run `pixi lock` deliberately when changing development dependencies.
+
+## Metadata and read-only validation
+
+`pqsio.inspect(path)` returns structured metadata and observed Parquet footer
+information. `pqsio.validate(path, level="quick" | "full")` returns a diagnostic
+report distinguishing invalid data from incomplete checks. Rust APIs and additive
+C JSON callbacks share the implementation. See [contracts and limits](docs/inspection.md).
+Run `pixi run test-inspection` for focused tests.
 
 ## Rust
 

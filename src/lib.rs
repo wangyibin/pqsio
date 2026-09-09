@@ -7,6 +7,10 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
 };
+pub mod metadata;
+pub mod inspection;
+pub use metadata::Metadata;
+pub use inspection::{inspect, validate, Inspection, ValidationLevel, ValidationReport};
 pub mod columns;
 pub mod ffi;
 pub use columns::{ColumnBatch, ConcatColumns, ConcatColumnsView, PairColumns, PairColumnsView};
@@ -483,27 +487,9 @@ pub struct Reader {
 impl Reader {
     pub fn open(path: impl AsRef<Path>, min_mapq: u8) -> Result<Self> {
         let path = path.as_ref();
-        let meta = fs::read_to_string(path.join("_metadata"))?;
-        let compact: String = meta
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .map(|c| if c == '"' { '\'' } else { c })
-            .collect();
-        let kind = if compact.contains("'format':'concat'") {
-            Kind::Concat
-        } else if compact.contains("'format':'pairs'") {
-            Kind::Pairs
-        } else {
-            bail!("unsupported PQS format");
-        };
-        ensure!(compact.contains("'is_pqs':True"), "not a PQS dataset");
-        let version = if kind == Kind::Pairs {
-            "'format-version':'0.1.0'"
-        } else {
-            "'format-version':'0.2.0'"
-        };
-        ensure!(compact.contains(version), "unsupported PQS format version");
-        let shard_scoped = kind == Kind::Concat && compact.contains("'read_idx_scope':'shard'");
+        let metadata = Metadata::open(path)?;
+        let kind = metadata.supported_kind()?;
+        let shard_scoped = kind == Kind::Concat && metadata.shard_scoped();
         let mut contigs = vec![];
         for line in fs::read_to_string(path.join("_contigsizes"))?.lines() {
             let fields: Vec<_> = line.split_whitespace().collect();
