@@ -400,3 +400,81 @@ fn parallel_worker_failure_wakes_idle_coordinator_and_producers() {
     assert!(!path.exists());
     assert!(!tmp.0.join("io.partial").exists());
 }
+
+#[test]
+fn columnar_owned_results_and_mixed_submission() -> anyhow::Result<()> {
+    let tmp = Scratch::new();
+    let path = tmp.0.join("columns");
+    let mut w = Writer::create(&path, Kind::Pairs, contigs(), 2)?;
+    let b = PairColumns {
+        read_id_offsets: vec![0, 0, 3],
+        read_id_bytes: "读".as_bytes().to_vec(),
+        chrom1: vec![0, 0],
+        pos1: vec![1, 2],
+        chrom2: vec![1, 1],
+        pos2: vec![u32::MAX as u64 + 1; 2],
+        strand1: vec![b'+'; 2],
+        strand2: vec![b'-'; 2],
+        mapq: vec![0, 60],
+    };
+    w.write_pairs_columns(b.as_view())?;
+    w.write_pairs(&[pair(1)])?;
+    assert_eq!(w.finish()?.q0_records, 3);
+    let mut r = Reader::open(&path, 0)?;
+    let first = r.next_columns()?.unwrap();
+    drop(r);
+    assert_eq!(first, ColumnBatch::Pairs(b));
+    let mut r = Reader::open(&path, 1)?;
+    let Some(ColumnBatch::Pairs(b)) = r.next_columns()? else {
+        panic!()
+    };
+    assert_eq!(b.mapq, [60]);
+    assert_eq!(b.read_id_bytes, "读".as_bytes());
+    Ok(())
+}
+
+#[test]
+fn columnar_concat_validates_whole_batch_and_owned_lifetime() -> anyhow::Result<()> {
+    let tmp = Scratch::new();
+    let path = tmp.0.join("concat-columns");
+    let mut w = Writer::create(&path, Kind::Concat, contigs(), 1)?;
+    let mut b = ConcatColumns {
+        read_offsets: vec![0, 2, 3],
+        read_idx: vec![1, 1, 2],
+        read_length: vec![100; 3],
+        read_start: vec![0; 3],
+        read_end: vec![50; 3],
+        strand: vec![b'+'; 3],
+        chrom: vec![0; 3],
+        start: vec![0; 3],
+        end: vec![50; 3],
+        mapping_quality: vec![0, 60, 1],
+        identity: vec![0.5; 3],
+        filter_reason_offsets: vec![0, 0, 0, 0],
+        filter_reason_bytes: vec![],
+    };
+    b.identity[2] = f32::NAN;
+    assert!(w.write_concat_columns(b.as_view()).is_err());
+    b.identity[2] = 0.5;
+    w.write_concat_columns(b.as_view())?;
+    assert!(w.write_read(&[alignment(2, 1)]).is_err());
+    w.write_read(&[alignment(3, 1)])?;
+    let counts = w.finish()?;
+    assert_eq!(
+        (
+            counts.q0_records,
+            counts.q1_records,
+            counts.q0_concats,
+            counts.q1_concats
+        ),
+        (4, 3, 3, 3)
+    );
+    let mut r = Reader::open(path, 0)?;
+    let Some(ColumnBatch::Concat(first)) = r.next_columns()? else {
+        panic!()
+    };
+    drop(r);
+    assert_eq!(first.read_idx, [1, 1]);
+    assert_eq!(first.read_offsets, [0, 2]);
+    Ok(())
+}

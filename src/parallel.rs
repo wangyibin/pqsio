@@ -43,29 +43,38 @@ impl Shard {
             Kind::Pairs => pair_frame(&self.pairs, &self.contigs)?,
             Kind::Concat => concat_frame(&self.concat, &self.contigs)?,
         };
-        let mq = if self.kind == Kind::Pairs {
-            "mapq"
-        } else {
-            "mapping_quality"
-        };
-        let mut q1 = frame.filter(&frame.column(mq)?.u8()?.gt_eq(1))?;
-        ParquetWriter::new(File::create(
-            self.staging.join(format!("q0/{}.parquet", self.index)),
-        )?)
-        .finish(&mut frame)?;
-        if q1.height() > 0 {
-            ParquetWriter::new(File::create(
-                self.staging.join(format!("q1/{}.parquet", self.index)),
-            )?)
-            .finish(&mut q1)?;
-        }
-        Ok(Counts {
-            q0_records: frame.height() as u64,
-            q1_records: q1.height() as u64,
-            q0_concats: self.concats[0],
-            q1_concats: self.concats[1],
-        })
+        store_frame(self.kind, &self.staging, self.index, &mut frame, self.concats)
     }
+}
+pub(crate) fn store_frame(
+    kind: Kind,
+    staging: &Path,
+    index: usize,
+    frame: &mut DataFrame,
+    concats: [u64; 2],
+) -> Result<Counts> {
+    let mq = if kind == Kind::Pairs {
+        "mapq"
+    } else {
+        "mapping_quality"
+    };
+    let mut q1 = frame.filter(&frame.column(mq)?.u8()?.gt_eq(1))?;
+    ParquetWriter::new(File::create(
+        staging.join(format!("q0/{}.parquet", index)),
+    )?)
+    .finish(frame)?;
+    if q1.height() > 0 {
+        ParquetWriter::new(File::create(
+            staging.join(format!("q1/{}.parquet", index)),
+        )?)
+        .finish(&mut q1)?;
+    }
+    Ok(Counts {
+        q0_records: frame.height() as u64,
+        q1_records: q1.height() as u64,
+        q0_concats: concats[0],
+        q1_concats: concats[1],
+    })
 }
 pub(crate) fn add_counts(dst: &mut Counts, src: Counts) {
     dst.q0_records += src.q0_records;

@@ -6,6 +6,24 @@
 namespace pqsio {
 inline int check(int code) { if (code < 0) throw std::runtime_error(pqsio_last_error()); return code; }
 enum class Kind : uint32_t { Pairs = 0, Concat = 1 };
+// Owns native column buffers. Borrowed views must not outlive this object.
+class ColumnBatch {
+    pqsio_column_batch *handle_ = nullptr;
+    friend class Reader;
+public:
+    ColumnBatch() = default;
+    ColumnBatch(const ColumnBatch &) = delete;
+    ColumnBatch &operator=(const ColumnBatch &) = delete;
+    ColumnBatch(ColumnBatch &&other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
+    ColumnBatch &operator=(ColumnBatch &&other) noexcept {
+        if (this != &other) { pqsio_column_batch_destroy(handle_); handle_ = other.handle_; other.handle_ = nullptr; }
+        return *this;
+    }
+    ~ColumnBatch() { pqsio_column_batch_destroy(handle_); }
+    explicit operator bool() const { return handle_ != nullptr; }
+    pqsio_pairs_columns pairs() const { pqsio_pairs_columns v{}; check(pqsio_column_batch_pairs(handle_, &v)); return v; }
+    pqsio_concat_columns concat() const { pqsio_concat_columns v{}; check(pqsio_column_batch_concat(handle_, &v)); return v; }
+};
 class Writer {
     pqsio_writer *handle_ = nullptr;
 public:
@@ -20,6 +38,8 @@ public:
     void write_reads(const std::vector<pqsio_alignment> &rows, const std::vector<size_t> &offsets) {
         check(pqsio_write_reads(handle_, rows.data(), rows.size(), offsets.data(), offsets.size()));
     }
+    void write_pairs_columns(const pqsio_pairs_columns &v) { check(pqsio_write_pairs_columns(handle_, &v)); }
+    void write_concat_columns(const pqsio_concat_columns &v) { check(pqsio_write_concat_columns(handle_, &v)); }
     void finish() { check(pqsio_writer_finish(handle_)); }
 };
 class Producer {
@@ -60,6 +80,7 @@ public:
     Reader(const Reader &) = delete;
     Reader &operator=(const Reader &) = delete;
     ~Reader() { pqsio_reader_destroy(handle_); }
+    ColumnBatch next_columns() { ColumnBatch b; check(pqsio_reader_next_columns(handle_, &b.handle_)); return b; }
     Kind kind() const { return static_cast<Kind>(check(pqsio_reader_kind(handle_))); }
     void contigs(pqsio_contigs_callback cb, void *user = nullptr) { check(pqsio_reader_contigs(handle_, cb, user)); }
     bool next(pqsio_pairs_callback pairs, pqsio_concat_callback concat, void *user = nullptr) {

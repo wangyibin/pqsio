@@ -69,6 +69,67 @@ int32_t pqsio_reader_contigs(const pqsio_reader *, pqsio_contigs_callback, void 
 /* 1 delivered shard, 0 EOF, -1 error. Consumes shard even on callback failure. */
 int32_t pqsio_reader_next(pqsio_reader *, pqsio_pairs_callback, pqsio_concat_callback, void *);
 int32_t pqsio_reader_destroy(pqsio_reader *);
+
+/* Columnar extension version 1 (symbol presence + pqsio_columnar_version()).
+ * Old ABI version and layouts are unchanged. All spans use element counts,
+ * native endian, natural alignment and initialized contiguous typed storage.
+ * Nonzero length requires non-NULL data; zero length permits NULL.
+ * Caller guarantees actual extent, liveness, alignment of structs/handles,
+ * and no concurrent mutation/access. Dangling pointers and false lengths
+ * cannot be detected. Writes borrow immutable inputs until return.
+ * Numeric columns have N elements. String offsets are uint64_t[N+1], start
+ * at 0, nondecreasing, end at byte length; each slice is valid UTF-8.
+ * Equal offsets encode empty strings; no NUL termination is required.
+ * Concat read_offsets are uint64_t[R+1], start 0, strictly increase, end N;
+ * each interval is a complete nonempty read with identical ID/read length.
+ * IDs strictly increase within and across calls (including row calls).
+ * Empty batches use string/read offsets {0}, all other spans length 0.
+ * pairs positions are 1-based; concat intervals are 0-based half-open.
+ * Invalid input accepts no part of a batch; storage errors poison writer.
+ * Read handles own immutable buffers, independent of reader lifetime.
+ * Views remain valid until batch_destroy; never free/reallocate view data.
+ * next_columns: 1 batch (possibly empty after filtering), 0 EOF, -1 error.
+ * Output handle must be writable, not overwrite a live owned handle.
+ * View getters return 0/-1. destroy(NULL) succeeds. Not thread safe.
+ */
+uint32_t pqsio_columnar_version(void);
+typedef struct pqsio_column_batch pqsio_column_batch;
+typedef struct { const uint8_t *data; size_t len; } pqsio_span_u8;
+typedef struct { const uint32_t *data; size_t len; } pqsio_span_u32;
+typedef struct { const uint64_t *data; size_t len; } pqsio_span_u64;
+typedef struct { const float *data; size_t len; } pqsio_span_f32;
+typedef struct {
+    pqsio_span_u64 read_id_offsets;
+    pqsio_span_u8 read_id_bytes;
+    pqsio_span_u32 chrom1;
+    pqsio_span_u64 pos1;
+    pqsio_span_u32 chrom2;
+    pqsio_span_u64 pos2;
+    pqsio_span_u8 strand1;
+    pqsio_span_u8 strand2;
+    pqsio_span_u8 mapq;
+} pqsio_pairs_columns;
+int32_t pqsio_write_pairs_columns(pqsio_writer *, const pqsio_pairs_columns *);
+int32_t pqsio_column_batch_pairs(const pqsio_column_batch *, pqsio_pairs_columns *);
+typedef struct {
+    pqsio_span_u64 read_offsets;
+    pqsio_span_u64 read_idx;
+    pqsio_span_u32 read_length;
+    pqsio_span_u32 read_start;
+    pqsio_span_u32 read_end;
+    pqsio_span_u8 strand;
+    pqsio_span_u32 chrom;
+    pqsio_span_u64 start;
+    pqsio_span_u64 end;
+    pqsio_span_u8 mapping_quality;
+    pqsio_span_f32 identity;
+    pqsio_span_u64 filter_reason_offsets;
+    pqsio_span_u8 filter_reason_bytes;
+} pqsio_concat_columns;
+int32_t pqsio_write_concat_columns(pqsio_writer *, const pqsio_concat_columns *);
+int32_t pqsio_column_batch_concat(const pqsio_column_batch *, pqsio_concat_columns *);
+int32_t pqsio_reader_next_columns(pqsio_reader *, pqsio_column_batch **);
+int32_t pqsio_column_batch_destroy(pqsio_column_batch *);
 #ifdef __cplusplus
 }
 #endif

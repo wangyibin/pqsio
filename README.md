@@ -53,6 +53,15 @@ order. For bulk submission, use `write_reads(&rows, &offsets)`; offsets are
 transfer strings without cloning them. The same read must never be submitted twice. This contract avoids an
 unbounded set of previously seen read IDs and prevents accidental group splits.
 
+## Columnar batch I/O (0.0.4)
+
+Synchronous writers also accept `PairColumns` / `ConcatColumns` through Python
+`write_columns`, Rust typed slice views, and additive C/C++ buffer descriptors.
+`Reader.iter_columns()` yields independent Python array-backed batches; no
+intermediate row objects are constructed. The base package remains standard
+library only. See [types, examples, ownership and capability detection](docs/columnar.md)
+and [measured performance and copy costs](docs/columnar-results.md).
+
 ## Parallel writing (0.0.3)
 
 `ParallelWriter` and shareable `Producer` interfaces are available in Rust,
@@ -129,9 +138,8 @@ formats and both reading and writing.
 
 The ABI accepts structured arrays, not serialized text. Strings are UTF-8,
 NUL-terminated. Numeric contig IDs index the ordered contig table supplied to
-`writer_open`. Strands are the ASCII bytes `+` and `-`. ABI v1 uses an array of
-records for simplicity; a column-buffer/Arrow interface can be added later
-without changing the on-disk schema.
+`writer_open`. Strands are the ASCII bytes `+` and `-`. ABI v1 retains its array-of-records functions. The additive columnar extension
+uses typed spans and packed UTF-8 offsets without changing the disk schema.
 
 Writes consume/copy inputs before returning. Reader callbacks borrow arrays
 and strings only during the callback; copy any data retained afterwards.

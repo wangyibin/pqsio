@@ -507,3 +507,272 @@ pub unsafe extern "C" fn pqsio_producer_destroy(p: *mut Producer) -> i32 {
         Ok(0)
     })
 }
+
+// Additive columnar extension. The original ABI remains version 1.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Spanu8 {
+    pub data: *const u8,
+    pub len: usize,
+}
+impl Spanu8 {
+    unsafe fn borrow<'a>(&self) -> Result<&'a [u8]> {
+        ensure!(
+            self.len == 0 || self.data.is_aligned(),
+            "unaligned column buffer"
+        );
+        slice(self.data, self.len)
+    }
+    fn view(v: &[u8]) -> Self {
+        Self {
+            data: v.as_ptr(),
+            len: v.len(),
+        }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Spanu32 {
+    pub data: *const u32,
+    pub len: usize,
+}
+impl Spanu32 {
+    unsafe fn borrow<'a>(&self) -> Result<&'a [u32]> {
+        ensure!(
+            self.len == 0 || self.data.is_aligned(),
+            "unaligned column buffer"
+        );
+        slice(self.data, self.len)
+    }
+    fn view(v: &[u32]) -> Self {
+        Self {
+            data: v.as_ptr(),
+            len: v.len(),
+        }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Spanu64 {
+    pub data: *const u64,
+    pub len: usize,
+}
+impl Spanu64 {
+    unsafe fn borrow<'a>(&self) -> Result<&'a [u64]> {
+        ensure!(
+            self.len == 0 || self.data.is_aligned(),
+            "unaligned column buffer"
+        );
+        slice(self.data, self.len)
+    }
+    fn view(v: &[u64]) -> Self {
+        Self {
+            data: v.as_ptr(),
+            len: v.len(),
+        }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Spanf32 {
+    pub data: *const f32,
+    pub len: usize,
+}
+impl Spanf32 {
+    unsafe fn borrow<'a>(&self) -> Result<&'a [f32]> {
+        ensure!(
+            self.len == 0 || self.data.is_aligned(),
+            "unaligned column buffer"
+        );
+        slice(self.data, self.len)
+    }
+    fn view(v: &[f32]) -> Self {
+        Self {
+            data: v.as_ptr(),
+            len: v.len(),
+        }
+    }
+}
+#[repr(C)]
+pub struct CPairColumns {
+    pub read_id_offsets: Spanu64,
+    pub read_id_bytes: Spanu8,
+    pub chrom1: Spanu32,
+    pub pos1: Spanu64,
+    pub chrom2: Spanu32,
+    pub pos2: Spanu64,
+    pub strand1: Spanu8,
+    pub strand2: Spanu8,
+    pub mapq: Spanu8,
+}
+impl CPairColumns {
+    unsafe fn borrow(&self) -> Result<PairColumnsView<'_>> {
+        Ok(PairColumnsView {
+            read_id_offsets: self.read_id_offsets.borrow()?,
+            read_id_bytes: self.read_id_bytes.borrow()?,
+            chrom1: self.chrom1.borrow()?,
+            pos1: self.pos1.borrow()?,
+            chrom2: self.chrom2.borrow()?,
+            pos2: self.pos2.borrow()?,
+            strand1: self.strand1.borrow()?,
+            strand2: self.strand2.borrow()?,
+            mapq: self.mapq.borrow()?,
+        })
+    }
+    fn view(v: &PairColumns) -> Self {
+        Self {
+            read_id_offsets: Spanu64::view(&v.read_id_offsets),
+            read_id_bytes: Spanu8::view(&v.read_id_bytes),
+            chrom1: Spanu32::view(&v.chrom1),
+            pos1: Spanu64::view(&v.pos1),
+            chrom2: Spanu32::view(&v.chrom2),
+            pos2: Spanu64::view(&v.pos2),
+            strand1: Spanu8::view(&v.strand1),
+            strand2: Spanu8::view(&v.strand2),
+            mapq: Spanu8::view(&v.mapq),
+        }
+    }
+}
+/// # Safety
+/// See the columnar pointer, lifetime and exclusivity contract in pqsio.h.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_write_pairs_columns(w: *mut Writer, v: *const CPairColumns) -> i32 {
+    call(|| {
+        w.as_mut()
+            .context("null writer")?
+            .write_pairs_columns(v.as_ref().context("null columns")?.borrow()?)?;
+        Ok(0)
+    })
+}
+/// # Safety
+/// Batch must be live; out must be writable and naturally aligned.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_column_batch_pairs(
+    b: *const ColumnBatch,
+    out: *mut CPairColumns,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null view output");
+        let ColumnBatch::Pairs(v) = b.as_ref().context("null column batch")? else {
+            bail!("wrong column batch kind");
+        };
+        *out = CPairColumns::view(v);
+        Ok(0)
+    })
+}
+#[repr(C)]
+pub struct CConcatColumns {
+    pub read_offsets: Spanu64,
+    pub read_idx: Spanu64,
+    pub read_length: Spanu32,
+    pub read_start: Spanu32,
+    pub read_end: Spanu32,
+    pub strand: Spanu8,
+    pub chrom: Spanu32,
+    pub start: Spanu64,
+    pub end: Spanu64,
+    pub mapping_quality: Spanu8,
+    pub identity: Spanf32,
+    pub filter_reason_offsets: Spanu64,
+    pub filter_reason_bytes: Spanu8,
+}
+impl CConcatColumns {
+    unsafe fn borrow(&self) -> Result<ConcatColumnsView<'_>> {
+        Ok(ConcatColumnsView {
+            read_offsets: self.read_offsets.borrow()?,
+            read_idx: self.read_idx.borrow()?,
+            read_length: self.read_length.borrow()?,
+            read_start: self.read_start.borrow()?,
+            read_end: self.read_end.borrow()?,
+            strand: self.strand.borrow()?,
+            chrom: self.chrom.borrow()?,
+            start: self.start.borrow()?,
+            end: self.end.borrow()?,
+            mapping_quality: self.mapping_quality.borrow()?,
+            identity: self.identity.borrow()?,
+            filter_reason_offsets: self.filter_reason_offsets.borrow()?,
+            filter_reason_bytes: self.filter_reason_bytes.borrow()?,
+        })
+    }
+    fn view(v: &ConcatColumns) -> Self {
+        Self {
+            read_offsets: Spanu64::view(&v.read_offsets),
+            read_idx: Spanu64::view(&v.read_idx),
+            read_length: Spanu32::view(&v.read_length),
+            read_start: Spanu32::view(&v.read_start),
+            read_end: Spanu32::view(&v.read_end),
+            strand: Spanu8::view(&v.strand),
+            chrom: Spanu32::view(&v.chrom),
+            start: Spanu64::view(&v.start),
+            end: Spanu64::view(&v.end),
+            mapping_quality: Spanu8::view(&v.mapping_quality),
+            identity: Spanf32::view(&v.identity),
+            filter_reason_offsets: Spanu64::view(&v.filter_reason_offsets),
+            filter_reason_bytes: Spanu8::view(&v.filter_reason_bytes),
+        }
+    }
+}
+/// # Safety
+/// See the columnar pointer, lifetime and exclusivity contract in pqsio.h.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_write_concat_columns(
+    w: *mut Writer,
+    v: *const CConcatColumns,
+) -> i32 {
+    call(|| {
+        w.as_mut()
+            .context("null writer")?
+            .write_concat_columns(v.as_ref().context("null columns")?.borrow()?)?;
+        Ok(0)
+    })
+}
+/// # Safety
+/// Batch must be live; out must be writable and naturally aligned.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_column_batch_concat(
+    b: *const ColumnBatch,
+    out: *mut CConcatColumns,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null view output");
+        let ColumnBatch::Concat(v) = b.as_ref().context("null column batch")? else {
+            bail!("wrong column batch kind");
+        };
+        *out = CConcatColumns::view(v);
+        Ok(0)
+    })
+}
+#[no_mangle]
+pub extern "C" fn pqsio_columnar_version() -> u32 {
+    1
+}
+/// # Safety
+/// Reader must be live and exclusive; out must be writable, not a live owner.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_reader_next_columns(
+    r: *mut Reader,
+    out: *mut *mut ColumnBatch,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null batch output");
+        *out = ptr::null_mut();
+        match r.as_mut().context("null reader")?.next_columns()? {
+            Some(b) => {
+                *out = Box::into_raw(Box::new(b));
+                Ok(1)
+            }
+            None => Ok(0),
+        }
+    })
+}
+/// # Safety
+/// b must be NULL or a live batch returned by next_columns; destroy exactly once.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_column_batch_destroy(b: *mut ColumnBatch) -> i32 {
+    call(|| {
+        if !b.is_null() {
+            drop(Box::from_raw(b));
+        }
+        Ok(0)
+    })
+}

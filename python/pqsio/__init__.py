@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 @dataclass
 class Pair:
@@ -173,6 +173,11 @@ class _Writer:
     def __del__(self):
         if getattr(self, "_handle", None) and self._handle.value:
             self.close()
+
+    def write_columns(self, batch):
+        """Synchronously submit a typed PairColumns or ConcatColumns batch."""
+        from .columns import write_columns
+        return write_columns(self, batch)
 
 class PairsWriter(_Writer):
     _kind = 0
@@ -357,6 +362,11 @@ class Reader:
         except BaseException:
             self.close()
             raise
+    def iter_columns(self):
+        """Yield independent array-backed batches, one per filtered shard."""
+        from .columns import iter_columns
+        return iter_columns(self)
+
     def iter_batches(self):
         while True:
             if not self._handle.value:
@@ -418,3 +428,5 @@ class ConcatReader(Reader):
         if self.kind != "concat":
             self.close()
             raise ValueError("Expected concat PQS")
+
+from .columns import PairColumns, ConcatColumns, pack_strings

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.4 — 2026-09-09
+
+- Add synchronous typed columnar pairs/concat writing and reading in Rust, C,
+  C++17 and Python, without intermediate row-object batches.
+- Validate complete submissions before acceptance; preserve complete reads,
+  cross-call read ID ordering, MAPQ filtering and legacy shard-local IDs.
+- Add owned native read batches, C++ RAII and safe Python array copies with
+  explicit buffer lifetimes and old-library capability detection.
+- Share storage/schema logic with row APIs; retain ABI v1, Polars 0.49.1,
+  existing disk formats and a standard-library-only Python package.
+- Add cross-language regression tests, buffer contracts and reproducible
+  row/column benchmarks documenting measured performance and copy costs.
+
 ## 0.0.3 — 2026-09-09
 
 - Add ordered multi-producer writing with bounded input batches and a fixed

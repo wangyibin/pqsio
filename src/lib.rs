@@ -7,7 +7,9 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
 };
+pub mod columns;
 pub mod ffi;
+pub use columns::{ColumnBatch, ConcatColumns, ConcatColumnsView, PairColumns, PairColumnsView};
 pub mod parallel;
 pub use parallel::{ParallelOptions, ParallelWriter, Producer};
 
@@ -68,6 +70,7 @@ pub struct Writer {
     target: PathBuf,
     staging: PathBuf,
     chunk_size: usize,
+    columns: Option<ColumnBatch>,
     pairs: Vec<Pair>,
     concat: Vec<Alignment>,
     last_read: Option<u64>,
@@ -124,6 +127,7 @@ impl Writer {
             target,
             staging,
             chunk_size,
+            columns: None,
             pairs: vec![],
             concat: vec![],
             last_read: None,
@@ -154,18 +158,17 @@ impl Writer {
         self.active()?;
         ensure!(self.kind == Kind::Pairs, "requires pairs writer");
         for r in rows {
-            self.position(r.chrom1, r.pos1)?;
-            self.position(r.chrom2, r.pos2)?;
-            ensure!(r.pos1 > 0 && r.pos2 > 0, "pairs positions must be 1-based");
-            ensure!(
-                strand_ok(r.strand1) && strand_ok(r.strand2),
-                "strand must be + or -"
-            );
+            self.pair_fields(
+                r.chrom1, r.pos1, r.chrom2, r.pos2, r.strand1, r.strand2,
+            )?;
         }
         Ok(())
     }
     pub fn write_pairs(&mut self, rows: &[Pair]) -> Result<()> {
         self.validate_pairs(rows)?;
+        if !rows.is_empty() {
+            self.flush_columns()?;
+        }
         for part in rows.chunks(self.chunk_size) {
             // Extend up to the boundary without cloning an intermediate batch.
             let mut remaining = part;
@@ -183,6 +186,9 @@ impl Writer {
     /// Transfer records and their strings into the writer without cloning them.
     pub fn write_pairs_owned(&mut self, rows: Vec<Pair>) -> Result<()> {
         self.validate_pairs(&rows)?;
+        if !rows.is_empty() {
+            self.flush_columns()?;
+        }
         let mut rows = rows.into_iter();
         while rows.len() > 0 {
             let n = rows.len().min(self.chunk_size - self.pairs.len());
@@ -207,16 +213,10 @@ impl Writer {
                 r.read_idx == first.read_idx && r.read_length == first.read_length,
                 "read ID and length must agree within a complete read"
             );
-            ensure!(
-                r.read_start < r.read_end && r.read_end <= r.read_length,
-                "invalid read interval"
-            );
-            ensure!(r.start < r.end, "invalid reference interval");
-            self.position(r.chrom, r.end)?;
-            ensure!(
-                strand_ok(r.strand) && r.identity.is_finite(),
-                "invalid strand or non-finite identity"
-            );
+            self.alignment_fields(
+                (r.read_length, r.read_start, r.read_end),
+                (r.chrom, r.start, r.end), r.strand, r.identity,
+            )?;
             has_q1 |= r.mapping_quality > 0;
         }
         Ok(has_q1)
@@ -240,6 +240,7 @@ impl Writer {
         self.active()?;
         ensure!(self.kind == Kind::Concat, "requires concat writer");
         let has_q1 = self.validate_read(rows, self.last_read)?;
+        self.flush_columns()?;
         self.start_read(rows.len(), rows[0].read_idx, has_q1)?;
         self.concat.extend_from_slice(rows);
         self.finish_read()
@@ -270,6 +271,9 @@ impl Writer {
     }
     pub fn write_reads(&mut self, rows: &[Alignment], offsets: &[usize]) -> Result<()> {
         let qualities = self.validate_reads(rows, offsets)?;
+        if !rows.is_empty() {
+            self.flush_columns()?;
+        }
         for (window, has_q1) in offsets.windows(2).zip(qualities) {
             let read = &rows[window[0]..window[1]];
             self.start_read(read.len(), read[0].read_idx, has_q1)?;
@@ -282,6 +286,9 @@ impl Writer {
     /// avoid cloning all alignment strings a second time.
     pub fn write_reads_owned(&mut self, rows: Vec<Alignment>, offsets: &[usize]) -> Result<()> {
         let qualities = self.validate_reads(&rows, offsets)?;
+        if !rows.is_empty() {
+            self.flush_columns()?;
+        }
         let mut rows = rows.into_iter().peekable();
         for (window, has_q1) in offsets.windows(2).zip(qualities) {
             let n = window[1] - window[0];
@@ -336,6 +343,7 @@ impl Writer {
     }
     fn finish_inner(&mut self) -> Result<Counts> {
         self.flush()?;
+        self.flush_columns()?;
         if let Some(executor) = &mut self.executor {
             executor.drain(&mut self.counts)?;
         }
@@ -409,8 +417,22 @@ fn categorize(df: &mut DataFrame, names: &[&str]) -> Result<()> {
     }
     Ok(())
 }
+// Centralize disk dtype/category choices for both input representations.
+fn storage_frame(kind: Kind, columns: Vec<Column>, contigs: &[Contig]) -> Result<DataFrame> {
+    let mut df = DataFrame::new(columns)?;
+    if kind == Kind::Pairs {
+        for name in ["pos1", "pos2"] {
+            let s = df.column(name)?.as_materialized_series().cast(&pos_dtype(contigs))?;
+            df.replace(name, s)?;
+        }
+        categorize(&mut df, &["chrom1", "chrom2", "strand1", "strand2"])?;
+    } else {
+        categorize(&mut df, &["strand", "chrom", "filter_reason"])?;
+    }
+    Ok(df)
+}
 fn pair_frame(rows: &[Pair], contigs: &[Contig]) -> Result<DataFrame> {
-    let mut df = DataFrame::new(vec![
+    storage_frame(Kind::Pairs, vec![
         col!(rows, "read_idx", |r| r.read_id.as_str()),
         col!(rows, "chrom1", |r| contigs[r.chrom1 as usize].name.as_str()),
         col!(rows, "pos1", |r| r.pos1),
@@ -427,19 +449,10 @@ fn pair_frame(rows: &[Pair], contigs: &[Contig]) -> Result<DataFrame> {
             "-"
         }),
         col!(rows, "mapq", |r| r.mapq),
-    ])?;
-    for name in ["pos1", "pos2"] {
-        let s = df
-            .column(name)?
-            .as_materialized_series()
-            .cast(&pos_dtype(contigs))?;
-        df.replace(name, s)?;
-    }
-    categorize(&mut df, &["chrom1", "chrom2", "strand1", "strand2"])?;
-    Ok(df)
+    ], contigs)
 }
 fn concat_frame(rows: &[Alignment], contigs: &[Contig]) -> Result<DataFrame> {
-    let mut df = DataFrame::new(vec![
+    storage_frame(Kind::Concat, vec![
         col!(rows, "read_idx", |r| r.read_idx),
         col!(rows, "read_length", |r| r.read_length),
         col!(rows, "read_start", |r| r.read_start),
@@ -451,9 +464,7 @@ fn concat_frame(rows: &[Alignment], contigs: &[Contig]) -> Result<DataFrame> {
         col!(rows, "mapping_quality", |r| r.mapping_quality),
         col!(rows, "identity", |r| r.identity),
         col!(rows, "filter_reason", |r| r.filter_reason.as_str()),
-    ])?;
-    categorize(&mut df, &["strand", "chrom", "filter_reason"])?;
-    Ok(df)
+    ], contigs)
 }
 
 /// Reads one existing Parquet shard at a time. Does not evaluate Python metadata.
@@ -540,7 +551,7 @@ impl Reader {
             next_read_id: 1,
         })
     }
-    pub fn next_batch(&mut self) -> Result<Option<Batch>> {
+    fn next_frame(&mut self) -> Result<Option<DataFrame>> {
         let Some(path) = self.files.next() else {
             return Ok(None);
         };
@@ -572,6 +583,17 @@ impl Reader {
         if self.min_mapq > 0 {
             df = df.filter(&df.column(quality)?.u8()?.gt_eq(self.min_mapq))?;
         }
+        Ok(Some(df))
+    }
+    pub fn next_batch(&mut self) -> Result<Option<Batch>> {
+        let Some(df) = self.next_frame()? else {
+            return Ok(None);
+        };
+        let quality = if self.kind == Kind::Pairs {
+            "mapq"
+        } else {
+            "mapping_quality"
+        };
         // Resolve columns once per shard. Native integer buffers are shared,
         // and only output-owned strings (read IDs/filter reasons) are allocated.
         let number = |name: &str| Numbers::new(df.column(name)?);
