@@ -13,6 +13,8 @@ pub mod subset;
 pub use subset::{subset, SubsetOptions, SubsetResult, ReadIds};
 pub mod merge;
 pub use merge::{merge, MergeOptions, MergeResult, MergeSource};
+pub mod convert;
+pub use convert::{convert, ConvertOptions, ConvertResult};
 pub mod metadata;
 pub mod inspection;
 pub use metadata::Metadata;
@@ -327,6 +329,7 @@ impl Writer {
     }
     fn flush_inner(&mut self) -> Result<()> {
         let job = parallel::Shard {
+            columns: None,
             kind: self.kind,
             contigs: self.contigs.clone(),
             staging: self.staging.clone(),

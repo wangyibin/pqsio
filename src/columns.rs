@@ -121,7 +121,7 @@ impl PairColumnsView<'_> {
         ensure!(self.mapq.len() == n, "mapq length must equal rows");
         strings(self.read_id_offsets, self.read_id_bytes, n)
     }
-    fn frame(&self, contigs: &[Contig]) -> Result<DataFrame> {
+    pub(crate) fn frame(&self, contigs: &[Contig]) -> Result<DataFrame> {
         let text = self.shape()?;
         storage_frame(
             Kind::Pairs,
@@ -299,7 +299,7 @@ impl ConcatColumnsView<'_> {
         ensure!(self.identity.len() == n, "identity length must equal rows");
         strings(self.filter_reason_offsets, self.filter_reason_bytes, n)
     }
-    fn frame(&self, contigs: &[Contig]) -> Result<DataFrame> {
+    pub(crate) fn frame(&self, contigs: &[Contig]) -> Result<DataFrame> {
         let text = self.shape()?;
         storage_frame(
             Kind::Concat,
@@ -377,18 +377,17 @@ impl Writer {
             return Ok(());
         };
         let result = (|| {
-            let mut frame = match &batch {
-                ColumnBatch::Pairs(b) => b.as_view().frame(&self.contigs)?,
-                ColumnBatch::Concat(b) => b.as_view().frame(&self.contigs)?,
+            let job = parallel::Shard {
+                kind: self.kind, contigs: self.contigs.clone(),
+                staging: self.staging.clone(), index: self.shard,
+                columns: Some(batch), pairs: vec![], concat: vec![],
+                concats: self.shard_concats,
             };
-            let counts = parallel::store_frame(
-                self.kind,
-                &self.staging,
-                self.shard,
-                &mut frame,
-                self.shard_concats,
-            )?;
-            parallel::add_counts(&mut self.counts, counts);
+            if let Some(executor) = &mut self.executor {
+                executor.submit(job, &mut self.counts)?;
+            } else {
+                parallel::add_counts(&mut self.counts, job.run()?);
+            }
             self.shard_concats = [0, 0];
             self.shard += 1;
             Ok(())

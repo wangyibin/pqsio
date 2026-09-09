@@ -1,6 +1,6 @@
 [workspace]
 name = "pqsio"
-version = "0.0.13"
+version = "0.0.14"
 description = "Pairs and concat PQS storage for Rust, C, C++ and Python"
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64"]
@@ -45,9 +45,10 @@ test-query = { cmd = "python -m unittest discover -s tests -p test_query.py -v",
 bench-query = { cmd = "python scripts/query_bench.py", depends-on = ["build"], description = "Opt-in synthetic region-query measurement" }
 test-subset = { cmd = "python -m unittest discover -s tests -p test_subset.py -v", depends-on = ["build"] }
 test-merge = { cmd = "python -m unittest discover -s tests -p test_merge.py -v", depends-on = ["build"] }
+test-convert = { cmd = "python -m unittest discover -s tests -p test_convert.py -v", depends-on = ["build"] }
 test-copy-numbers = { cmd = "python -m unittest discover -s tests -p test_copy_numbers.py -v", depends-on = ["build"] }
 test-decode = { cmd = "python -m unittest discover -s tests -p test_decode.py -v", depends-on = ["build"] }
 test-inspection = { cmd = "python -m unittest discover -s tests -p test_inspection.py -v", depends-on = ["build"] }
-test = { depends-on = ["test-copy-numbers", "test-decode", "test-subset", "test-query", "test-merge", "test-inspection", "test-rust", "test-python", "test-columns", "test-native", "test-parallel", "test-streaming"], description = "Run standalone Rust, Python, C and C++ tests" }
+test = { depends-on = ["test-convert", "test-copy-numbers", "test-decode", "test-subset", "test-query", "test-merge", "test-inspection", "test-rust", "test-python", "test-columns", "test-native", "test-parallel", "test-streaming"], description = "Run standalone Rust, Python, C and C++ tests" }
 lint = { cmd = "cargo clippy --locked --profile dev-release --all-targets -j 4 -- -D warnings" }
 bench-columns = { cmd = "python scripts/columnar_bench.py", depends-on = ["build"], description = "Run the synthetic columnar benchmark (explicit opt-in)" }

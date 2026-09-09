@@ -8,6 +8,39 @@ use std::{
     ptr,
 };
 thread_local! { static ERROR: RefCell<CString> = RefCell::new(CString::default()); }
+/// Convert concat PQS to pairs PQS. Callback failure retains published output.
+/// # Safety
+/// Strings must be valid NUL-terminated UTF-8; callback/user follow JSON rules.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_convert_json(
+    input: *const c_char, output: *const c_char, mode: *const c_char,
+    chunk_size: usize, batch_rows: usize, min_mapq: u8,
+    min_order: usize, max_order: usize, callback: Option<JsonCallback>, user: *mut c_void,
+) -> i32 {
+    pqsio_convert_parallel_json(input, output, mode, chunk_size, batch_rows,
+        min_mapq, min_order, max_order, 1, callback, user)
+}
+/// Parallel conversion; threads must be positive. Legacy convert uses one worker.
+/// # Safety
+/// Strings and callback/user follow the pqsio_convert_json contract.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_convert_parallel_json(
+    input: *const c_char, output: *const c_char, mode: *const c_char,
+    chunk_size: usize, batch_rows: usize, min_mapq: u8,
+    min_order: usize, max_order: usize, threads: usize,
+    callback: Option<JsonCallback>, user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let result = convert(text(input)?, text(output)?, &text(mode)?, ConvertOptions {
+            chunk_size, batch_rows, min_mapq, min_order, max_order, threads,
+        })?;
+        let json = result.to_json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0,
+            "conversion succeeded and output was published, but result callback failed");
+        Ok(0)
+    })
+}
 fn call(f: impl FnOnce() -> Result<i32>) -> i32 {
     ERROR.with(|e| *e.borrow_mut() = CString::default());
     let result = catch_unwind(AssertUnwindSafe(f))

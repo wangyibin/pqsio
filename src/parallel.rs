@@ -33,15 +33,20 @@ pub(crate) struct Shard {
     pub contigs: Vec<Contig>,
     pub staging: PathBuf,
     pub index: usize,
+    pub columns: Option<ColumnBatch>,
     pub pairs: Vec<Pair>,
     pub concat: Vec<Alignment>,
     pub concats: [u64; 2],
 }
 impl Shard {
     pub fn run(&self) -> Result<Counts> {
-        let mut frame = match self.kind {
-            Kind::Pairs => pair_frame(&self.pairs, &self.contigs)?,
-            Kind::Concat => concat_frame(&self.concat, &self.contigs)?,
+        let mut frame = match &self.columns {
+            Some(ColumnBatch::Pairs(b)) => b.as_view().frame(&self.contigs)?,
+            Some(ColumnBatch::Concat(b)) => b.as_view().frame(&self.contigs)?,
+            None => match self.kind {
+                Kind::Pairs => pair_frame(&self.pairs, &self.contigs)?,
+                Kind::Concat => concat_frame(&self.concat, &self.contigs)?,
+            },
         };
         store_frame(self.kind, &self.staging, self.index, &mut frame, self.concats)
     }
@@ -90,7 +95,7 @@ pub(crate) struct Executor {
     limit: usize,
 }
 impl Executor {
-    fn new(n: usize, shared: Arc<Shared>) -> Result<Self> {
+    fn new(n: usize, shared: Option<Arc<Shared>>) -> Result<Self> {
         let (tx, rx) = mpsc::sync_channel::<Job>(n);
         let rx = Arc::new(Mutex::new(rx));
         let mut pool = Self {
@@ -112,7 +117,7 @@ impl Executor {
                             catch_unwind(AssertUnwindSafe(|| job.run())).unwrap_or_else(|_| {
                                 Err(anyhow::anyhow!("PQS encoding worker panicked"))
                             });
-                        if let Err(e) = &result {
+                        if let (Err(e), Some(shared)) = (&result, &shared) {
                             let mut state = shared.state.lock().unwrap();
                             if state.error.is_none() {
                                 state.error = Some(format!("{e:#}"));
@@ -157,6 +162,18 @@ impl Drop for Executor {
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
+    }
+}
+
+impl Writer {
+    /// Internal opt-in: keep the ordered writer/metadata owner on the caller
+    /// while up to `workers` owned shards are encoded and written concurrently.
+    pub(crate) fn parallel_encoding(&mut self, workers: usize) -> Result<()> {
+        self.active()?;
+        ensure!(workers > 0, "encoding workers must be positive");
+        ensure!(self.executor.is_none(), "encoding workers already configured");
+        self.executor = Some(Executor::new(workers, None)?);
+        Ok(())
     }
 }
 
@@ -283,7 +300,7 @@ impl ParallelWriter {
             options,
             kind,
         });
-        writer.executor = Some(Executor::new(options.workers, shared.clone())?);
+        writer.executor = Some(Executor::new(options.workers, Some(shared.clone()))?);
         let state = shared.clone();
         let coordinator =
             thread::Builder::new()

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.14 — 2026-09-09
+
+- Add bounded concat-to-pairs conversion for Rust, Python, and C/C++, with
+  MAPQ/order filters, deterministic IDs, midpoint coordinates, and `cn.info`
+  propagation.
+- Expand directly between column batches and reuse conversion/encoding workers
+  and buffers for bounded, source-ordered parallel output.
+- Add conversion acceptance coverage, API documentation, and reproducible
+  benchmark scripts without adding runtime dependencies.
+
 ## 0.0.13 — 2026-09-09
 
 - Accelerate native numeric frame-to-column conversion with typed, chunk-aware

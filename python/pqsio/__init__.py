@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.13"
+__version__ = "0.0.14"
 
 @dataclass
 class Pair:
@@ -502,6 +502,7 @@ class StreamingReader(Reader):
 from .inspection import Metadata, Inspection, ValidationReport, inspect, validate
 
 from .merge import MergeResult, merge
+from .convert import ConvertResult, convert
 
 from .query import QueryReader, build_index
 

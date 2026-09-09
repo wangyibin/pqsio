@@ -164,6 +164,14 @@ int32_t pqsio_stream_destroy(pqsio_stream *);
  * Return 0 for a delivered report (including invalid/incomplete), -1 for an
  * invocation error. Report status must be examined separately. */
 typedef int32_t (*pqsio_json_callback)(const uint8_t *, size_t, void *);
+/* concat2pairs: input, output, mode, chunk_size, batch_rows, min_mapq,
+ * min_order, max_order (exclusive), callback, user. See README conversion.
+ * Callback follows the JSON contract; failure after publication retains output. */
+int32_t pqsio_convert_json(const char *, const char *, const char *, size_t,
+                          size_t, uint8_t, size_t, size_t, pqsio_json_callback, void *);
+/* Same arguments, adding threads (>0) before callback/user. Ordered output. */
+int32_t pqsio_convert_parallel_json(const char *, const char *, const char *, size_t,
+                          size_t, uint8_t, size_t, size_t, size_t, pqsio_json_callback, void *);
 int32_t pqsio_inspect_json(const char *, pqsio_json_callback, void *);
 int32_t pqsio_validate_json(const char *, uint32_t, size_t, pqsio_json_callback, void *);
 /* Additive ABI v1 merge capability. Inputs retain caller order, provenance is
