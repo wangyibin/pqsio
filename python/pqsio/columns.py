@@ -125,14 +125,20 @@ def write_columns(writer, batch):
 
 def iter_columns(reader):
     from . import _check
+    symbol = "pqsio_" + reader._prefix + "_next_columns"
+    if reader._prefix == "stream" and not hasattr(reader._lib, symbol):
+        raise RuntimeError("Native pqsio library lacks streaming columnar capability; rebuild/update it. Streaming row batches remain supported.")
     _require(reader._lib)
+    next_columns = getattr(reader._lib, symbol)
+    next_columns.argtypes = [C.c_void_p, C.POINTER(C.c_void_p)]
+    next_columns.restype = C.c_int32
     cls, native, name = ((PairColumns, _PairColumns, "pairs") if reader.kind == "pairs"
                          else (ConcatColumns, _ConcatColumns, "concat"))
     while True:
         if not reader._handle.value:
             raise RuntimeError("Reader is closed")
         handle = C.c_void_p()
-        if _check(reader._lib.pqsio_reader_next_columns(reader._handle, C.byref(handle))) == 0:
+        if _check(next_columns(reader._handle, C.byref(handle))) == 0:
             return
         try:
             view = native()

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.7 — 2026-09-09
+
+- Add owned column-batch output to `StreamingReader` in Rust, C, C++17 and
+  Python, with the same cursor, batching, grouping and filtering semantics as
+  streaming row output.
+- Decode stream row groups into shared typed column buffers; materialize row
+  objects only for the row API, while preserving cross-row-group read offsets
+  and buffer lifetime guarantees.
+- Keep all existing ABI entry points, disk schemas and legacy readers intact;
+  add capability detection and cross-language tests for column output,
+  interleaved row/column reads, terminal errors and ownership.
+
 ## 0.0.6 — 2026-09-09
 
 - Add `StreamingReader` APIs for Rust, C, C++17 and Python. They form row

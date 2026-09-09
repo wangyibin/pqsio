@@ -92,7 +92,7 @@ impl PairColumns {
             mapq: &self.mapq,
         }
     }
-    fn append(&mut self, v: PairColumnsView<'_>, a: usize, b: usize) {
+    pub(crate) fn append(&mut self, v: PairColumnsView<'_>, a: usize, b: usize) {
         self.chrom1.extend_from_slice(&v.chrom1[a..b]);
         self.pos1.extend_from_slice(&v.pos1[a..b]);
         self.chrom2.extend_from_slice(&v.chrom2[a..b]);
@@ -236,7 +236,24 @@ impl ConcatColumns {
             filter_reason_bytes: &self.filter_reason_bytes,
         }
     }
-    fn append(&mut self, v: ConcatColumnsView<'_>, a: usize, b: usize) {
+    pub(crate) fn append(&mut self, v: ConcatColumnsView<'_>, a: usize, b: usize) {
+        if a == b {
+            return;
+        }
+        // Rebase offsets and merge a read continued from an earlier row group.
+        let base = self.read_idx.len();
+        let previous = self.read_idx.last().copied();
+        self.read_offsets.pop();
+        for i in a..b {
+            let prev = if i == a {
+                previous
+            } else {
+                Some(v.read_idx[i - 1])
+            };
+            if prev != Some(v.read_idx[i]) {
+                self.read_offsets.push((base + i - a) as u64);
+            }
+        }
         self.read_idx.extend_from_slice(&v.read_idx[a..b]);
         self.read_length.extend_from_slice(&v.read_length[a..b]);
         self.read_start.extend_from_slice(&v.read_start[a..b]);
@@ -486,6 +503,9 @@ impl Reader {
         let Some(df) = self.next_frame()? else {
             return Ok(None);
         };
+        Ok(Some(self.frame_columns(df)?))
+    }
+    pub(crate) fn frame_columns(&self, df: DataFrame) -> Result<ColumnBatch> {
         let number = |name: &str| Numbers::new(df.column(name)?);
         let chromosome = |name: &str| {
             Codes::new(df.column(name)?, |s| {
@@ -537,7 +557,7 @@ impl Reader {
                     .extend_from_slice(s.context("null string")?.as_bytes());
                 b.read_id_offsets.push(b.read_id_bytes.len() as u64);
             }
-            Ok(Some(ColumnBatch::Pairs(b)))
+            Ok(ColumnBatch::Pairs(b))
         } else {
             let mut b = ConcatColumns::default();
             let c = number("read_idx")?;
@@ -597,7 +617,55 @@ impl Reader {
             if !b.read_idx.is_empty() {
                 b.read_offsets.push(b.read_idx.len() as u64);
             }
-            Ok(Some(ColumnBatch::Concat(b)))
+            Ok(ColumnBatch::Concat(b))
+        }
+    }
+}
+
+impl ColumnBatch {
+    pub(crate) fn into_rows(self) -> Result<Batch> {
+        match self {
+            Self::Pairs(b) => {
+                let text = strings(&b.read_id_offsets, &b.read_id_bytes, b.pos1.len())?;
+                Ok(Batch::Pairs(
+                    (0..b.pos1.len())
+                        .map(|i| Pair {
+                            read_id: text[i].to_owned(),
+                            chrom1: b.chrom1[i],
+                            pos1: b.pos1[i],
+                            chrom2: b.chrom2[i],
+                            pos2: b.pos2[i],
+                            strand1: b.strand1[i],
+                            strand2: b.strand2[i],
+                            mapq: b.mapq[i],
+                        })
+                        .collect(),
+                ))
+            }
+            Self::Concat(b) => {
+                let text = strings(
+                    &b.filter_reason_offsets,
+                    &b.filter_reason_bytes,
+                    b.read_idx.len(),
+                )?;
+                Ok(Batch::Concat(
+                    (0..b.read_idx.len())
+                        .map(|i| Alignment {
+                            filter_reason: text[i].to_owned(),
+                            read_idx: b.read_idx[i],
+                            read_length: b.read_length[i],
+                            read_start: b.read_start[i],
+                            read_end: b.read_end[i],
+                            strand: b.strand[i],
+                            chrom: b.chrom[i],
+                            start: b.start[i],
+                            end: b.end[i],
+                            mapping_quality: b.mapping_quality[i],
+                            identity: b.identity[i],
+                        })
+                        .collect(),
+                ))
+            }
         }
     }
 }

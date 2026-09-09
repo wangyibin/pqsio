@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 @dataclass
 class Pair:
@@ -471,7 +471,8 @@ class StreamingReader(Reader):
         self._metadata()
 
     def iter_columns(self):
-        raise NotImplementedError("StreamingReader provides row batches only")
+        """Yield owned column batches honoring streaming boundary/filter options."""
+        return super().iter_columns()
 
     def iter_reads(self):
         raise NotImplementedError("Use iter_batches with boundary='complete_reads'; batches may contain multiple reads")

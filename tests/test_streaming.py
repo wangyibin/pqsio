@@ -1,5 +1,6 @@
 """Named synthetic row-group/shard fixtures; no external datasets."""
 import ctypes as C
+import gc
 import os
 import shlex
 import subprocess
@@ -10,6 +11,7 @@ import unittest
 from unittest.mock import patch
 import polars as pl
 import pqsio as p
+from test_columns import rows as column_rows
 
 ROOT = Path(__file__).parent / 'output'
 ROOT.mkdir(exist_ok=True)
@@ -28,7 +30,15 @@ class Streaming(unittest.TestCase):
                 w.write_read([p.Alignment(i, 100, 0, 50, '+', 0, 2**32, 2**32+50, 60, .5, '通过')])
         frame = pl.read_parquet(next((path/'q0').glob('*.parquet')))
         frame = pl.concat([frame.slice(0,1)]*len(ids)) if ids else frame.head(0)
-        frame = frame.with_columns(pl.Series('read_idx', ids, dtype=pl.UInt64), pl.Series('mapping_quality', qualities, dtype=pl.UInt8))
+        frame = frame.with_columns(
+            pl.Series('read_idx', ids, dtype=pl.UInt64),
+            pl.Series('mapping_quality', qualities, dtype=pl.UInt8),
+            pl.Series('filter_reason', [('通过', '', 'pass')[i%3] for i in range(len(ids))], dtype=pl.Utf8).cast(pl.Categorical),
+            pl.Series('strand', ['+' if i%2 else '-' for i in range(len(ids))], dtype=pl.Utf8).cast(pl.Categorical),
+            pl.Series('start', [2**32+i for i in range(len(ids))], dtype=pl.UInt64),
+            pl.Series('end', [2**32+i+50 for i in range(len(ids))], dtype=pl.UInt64),
+            pl.Series('identity', [i/16 for i in range(len(ids))], dtype=pl.Float32),
+        )
         for old in (path/'q0').glob('*.parquet'): old.unlink()
         bounds = (0, *cuts, len(ids))
         for index, (a,b) in enumerate(zip(bounds,bounds[1:])):
@@ -41,7 +51,31 @@ class Streaming(unittest.TestCase):
         return path
     def batches(self, path, n=3, boundary='rows', mode=None, mapq=30):
         with p.StreamingReader(path, mapq, batch_rows=n, boundary=boundary, filter_mode=mode) as r:
-            return list(r.iter_batches())
+            expected = list(r.iter_batches())
+        with p.StreamingReader(path, mapq, batch_rows=n, boundary=boundary, filter_mode=mode) as r:
+            with patch.object(p, '_decode', side_effect=AssertionError('row conversion')), \
+                 patch.object(r, 'iter_batches', side_effect=AssertionError('row fallback')):
+                columns = list(r.iter_columns())
+        self.assertEqual([column_rows(b) for b in columns], expected)
+        # Independent existing Reader decoder, always q0 (fixture q1 is not rewritten).
+        with p.Reader(path, 0) as source:
+            raw = [row for batch in source.iter_batches() for row in batch]
+            if source.kind == 'pairs':
+                wanted = [row for row in raw if row.mapq >= mapq]
+            elif mode == 'complete_reads':
+                from itertools import groupby
+                wanted = []
+                for _, read in groupby(raw, key=lambda row: row.read_idx):
+                    read = list(read)
+                    if any(row.mapping_quality >= mapq for row in read): wanted.extend(read)
+            else:
+                wanted = [row for row in raw if row.mapping_quality >= mapq]
+        self.assertEqual([row for batch in expected for row in batch], wanted)
+        for b, batch in zip(columns, expected):
+            if isinstance(b, p.ConcatColumns):
+                offsets = [0] + [i for i in range(1,len(batch)) if batch[i].read_idx != batch[i-1].read_idx] + [len(batch)]
+                self.assertEqual(list(b.read_offsets), offsets)
+        return expected
     def test_combinations_and_invariance(self):
         path = self.fixture()
         for mode, expected in [('matching_alignments',[1,3,4]), ('complete_reads',[1,1,3,3,3,3,3,4])]:
@@ -83,7 +117,7 @@ class Streaming(unittest.TestCase):
     def test_pairs_split_pack_long_coordinates_and_legacy(self):
         for chunk in (2,20):
             path=self.root/f'pairs{chunk}'
-            rows=[p.Pair(str(i),0,2**32+i,0,2,'+','-',60) for i in range(7)]
+            rows=[p.Pair(('', '读段', str(i))[i%3],0,2**32+i,0,2,'+','-',60) for i in range(7)]
             with p.PairsWriter(path,{'chr1':2**33},chunk_size=chunk) as w: w.write_batch(rows)
             for n in (1,3,7,20):
                 batches=self.batches(path,n)
@@ -142,6 +176,59 @@ else: raise AssertionError('missing capability error')
         r.close()
         self.assertFalse(handles())
         it.close()
+
+    def test_columns_lifetime_interleaving_and_capability(self):
+        path=self.fixture()
+        r=p.StreamingReader(path,30,batch_rows=3,boundary='complete_reads',filter_mode='complete_reads')
+        first=next(r.iter_columns())
+        self.assertEqual(list(first.read_offsets),[0,2])
+        self.assertEqual(len(next(r.iter_batches())),5)
+        last=next(r.iter_columns())
+        self.assertEqual(list(last.read_idx),[4])
+        self.assertEqual(list(r.iter_columns()),[])
+        self.assertEqual(list(r.iter_batches()),[])
+        view=memoryview(first.start); r.close(); del first,r; gc.collect()
+        self.assertEqual(list(view),[2**32,2**32+1])
+        with p.StreamingReader(path,batch_rows=1) as r:
+            lib=r._lib
+            class RowOnly:
+                def __getattr__(self,name):
+                    if name=='pqsio_stream_next_columns': raise AttributeError(name)
+                    return getattr(lib,name)
+            r._lib=RowOnly()
+            with self.assertRaisesRegex(RuntimeError,'streaming columnar capability'):
+                next(r.iter_columns())
+            self.assertEqual(next(r.iter_batches())[0].read_idx,1)
+        with p.StreamingReader(path,batch_rows=1) as r:
+            it=r.iter_columns(); next(it); r.close()
+            with self.assertRaisesRegex(RuntimeError,'closed'): next(it)
+
+    def test_columns_terminal_errors(self):
+        path=self.fixture()
+        r=p.StreamingReader(path,batch_rows=1)
+        first=next(r.iter_columns())
+        (path/'q0'/'1.parquet').write_bytes(b'corrupt')
+        with self.assertRaises(RuntimeError): list(r.iter_columns())
+        for method in (r.iter_columns,r.iter_batches):
+            with self.assertRaisesRegex(RuntimeError,'failed'): next(method())
+        r.close()
+        self.assertEqual(list(first.read_idx),[1])
+        path=self.fixture('bad-ids',(2,1),(0,0),())
+        with p.StreamingReader(path,255,batch_rows=1) as r:
+            with self.assertRaisesRegex(RuntimeError,'contiguous and increasing'): next(r.iter_columns())
+        # Wrong output arguments poison live streams and clear writable outputs.
+        lib=p._library(); fn=lib.pqsio_stream_next_columns
+        fn.argtypes=[C.c_void_p,C.POINTER(C.c_void_p)]; fn.restype=C.c_int32
+        path=self.fixture('valid')
+        with p.StreamingReader(path) as r:
+            self.assertEqual(fn(r._handle,None),-1)
+            out=C.c_void_p(1)
+            self.assertEqual(fn(r._handle,C.byref(out)),-1)
+            self.assertFalse(out.value)
+            with self.assertRaisesRegex(RuntimeError,'failed'): next(r.iter_batches())
+        out=C.c_void_p(1)
+        self.assertEqual(fn(None,C.byref(out)),-1)
+        self.assertFalse(out.value)
 
     def test_native_c_cpp(self):
         path=self.fixture()

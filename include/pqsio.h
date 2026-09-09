@@ -140,6 +140,17 @@ int32_t pqsio_column_batch_destroy(pqsio_column_batch *);
 typedef struct pqsio_stream pqsio_stream;
 int32_t pqsio_stream_open(const char *, uint8_t, uint64_t, uint32_t, uint32_t, pqsio_stream **);
 int32_t pqsio_stream_next(pqsio_stream *, pqsio_pairs_callback, pqsio_concat_callback, void *);
+/* Additive capability: resolve this symbol before use with older libraries.
+ * Same cursor/options as stream_next: 1 nonempty batch, 0 EOF, -1 terminal
+ * error. Sets *out=NULL on EOF/error. out must be writable, naturally aligned,
+ * and must not overwrite a live batch. NULL out also poisons a live stream.
+ * Batch owns its buffers independently of the stream: use existing
+ * column_batch_pairs/concat getters and column_batch_destroy exactly once.
+ * In rows mode, concat read_offsets delimit retained fragments in this batch;
+ * only complete_reads boundary keeps each returned read together. Filtering
+ * matching_alignments returns retained alignments, not the original full read.
+ * No concurrent access/reentry. Previously returned batches remain valid. */
+int32_t pqsio_stream_next_columns(pqsio_stream *, pqsio_column_batch **);
 int32_t pqsio_stream_kind(const pqsio_stream *);
 int32_t pqsio_stream_contigs(const pqsio_stream *, pqsio_contigs_callback, void *);
 int32_t pqsio_stream_destroy(pqsio_stream *);

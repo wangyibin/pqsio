@@ -76,12 +76,15 @@ order. For bulk submission, use `write_reads(&rows, &offsets)`; offsets are
 transfer strings without cloning them. The same read must never be submitted twice. This contract avoids an
 unbounded set of previously seen read IDs and prevents accidental group splits.
 
-## Streaming row reads (0.0.6)
+## Streaming reads (row API: 0.0.6; column API: 0.0.7)
 
 New `StreamingReader` APIs in Rust, C, C++ and Python decouple output batches
 from disk shards. `batch_rows`, read-boundary policy and concat MAPQ filtering
 are independent options. Complete-read filtering returns qualifying reads from
-q0 including low-MAPQ alignments. Existing `Reader` methods are unchanged.
+q0 including low-MAPQ alignments. `StreamingReader.iter_columns()` (Rust/C++:
+`next_columns`, C: `pqsio_stream_next_columns`) now returns owned column batches
+with the same options and cursor, without intermediate row conversion. Existing
+`Reader` methods are unchanged.
 See [new interfaces, semantics and memory limits](docs/streaming.md) and
 [validation and measurements](docs/streaming-results.md).
 

@@ -10,6 +10,7 @@ enum class Kind : uint32_t { Pairs = 0, Concat = 1 };
 class ColumnBatch {
     pqsio_column_batch *handle_ = nullptr;
     friend class Reader;
+    friend class StreamingReader;
 public:
     ColumnBatch() = default;
     ColumnBatch(const ColumnBatch &) = delete;
@@ -101,6 +102,7 @@ public:
     StreamingReader(const StreamingReader &) = delete;
     StreamingReader &operator=(const StreamingReader &) = delete;
     ~StreamingReader() { pqsio_stream_destroy(handle_); }
+    ColumnBatch next_columns() { ColumnBatch b; check(pqsio_stream_next_columns(handle_, &b.handle_)); return b; }
     void close() { check(pqsio_stream_destroy(handle_)); handle_ = nullptr; }
     Kind kind() const { return static_cast<Kind>(check(pqsio_stream_kind(handle_))); }
     void contigs(pqsio_contigs_callback cb, void *user = nullptr) { check(pqsio_stream_contigs(handle_, cb, user)); }

@@ -1,6 +1,5 @@
 //! Additive row-group streaming reader. Legacy Reader behavior is unchanged.
 use crate::*;
-use std::collections::VecDeque;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,12 +34,13 @@ pub struct StreamingReader {
     options: ReadOptions,
     min_mapq: u8,
     decoder: Option<(File, ParquetReader<File>, usize)>,
-    pairs: std::vec::IntoIter<Pair>,
-    alignments: std::vec::IntoIter<Alignment>,
+    pairs: PairColumns,
+    alignments: ConcatColumns,
+    position: usize,
     previous_raw: Option<u64>,
     mapped_id: u64,
-    pending: Vec<Alignment>,
-    ready: VecDeque<Alignment>,
+    ready: ConcatColumns,
+    ready_position: usize,
     eof: bool,
     pub(crate) failed: bool,
 }
@@ -61,12 +61,13 @@ impl StreamingReader {
             options,
             min_mapq,
             decoder: None,
-            pairs: vec![].into_iter(),
-            alignments: vec![].into_iter(),
+            pairs: PairColumns::default(),
+            alignments: ConcatColumns::default(),
+            position: 0,
             previous_raw: None,
             mapped_id: 0,
-            pending: vec![],
-            ready: VecDeque::new(),
+            ready: ConcatColumns::default(),
+            ready_position: 0,
             eof: false,
             failed: false,
         })
@@ -80,15 +81,24 @@ impl StreamingReader {
     pub(crate) fn poison(&mut self) {
         self.failed = true;
         self.decoder = None;
-        self.pairs = vec![].into_iter();
-        self.alignments = vec![].into_iter();
-        self.pending = vec![];
-        self.ready = VecDeque::new();
+        self.pairs = PairColumns::default();
+        self.alignments = ConcatColumns::default();
+        self.ready = ConcatColumns::default();
+        self.position = 0;
+        self.ready_position = 0;
     }
     fn decode(&mut self) -> Result<bool> {
+        if self.eof {
+            return Ok(false);
+        }
+        // Release the exhausted group before allocating the next one.
+        self.pairs = PairColumns::default();
+        self.alignments = ConcatColumns::default();
+        self.position = 0;
         loop {
             if self.decoder.is_none() {
                 let Some(path) = self.source.files.next() else {
+                    self.eof = true;
                     return Ok(false);
                 };
                 let file = File::open(path)?;
@@ -116,11 +126,11 @@ impl StreamingReader {
             let mut decoder =
                 ParquetReader::new(file.try_clone()?).read_parallel(ParallelStrategy::None);
             decoder.set_metadata(Arc::new(one));
-            match self.source.frame_batch(decoder.finish()?)? {
-                Batch::Pairs(rows) => self.pairs = rows.into_iter(),
-                Batch::Concat(mut rows) => {
-                    for row in &mut rows {
-                        let raw = row.read_idx;
+            match self.source.frame_columns(decoder.finish()?)? {
+                ColumnBatch::Pairs(columns) => self.pairs = columns,
+                ColumnBatch::Concat(mut columns) => {
+                    for id in &mut columns.read_idx {
+                        let raw = *id;
                         if let Some(previous) = self.previous_raw {
                             ensure!(raw >= previous, "concat read IDs must be contiguous and increasing within their ID scope");
                         }
@@ -132,58 +142,73 @@ impl StreamingReader {
                                     .checked_add(1)
                                     .context("logical read ID overflow")?;
                             }
-                            row.read_idx = self.mapped_id;
+                            *id = self.mapped_id;
                         }
                         self.previous_raw = Some(raw);
                     }
-                    self.alignments = rows.into_iter();
+                    self.alignments = columns;
                 }
             }
             return Ok(true);
         }
     }
-    fn alignment(&mut self) -> Result<Option<Alignment>> {
-        loop {
-            if let Some(row) = self.alignments.next() {
-                return Ok(Some(row));
-            }
+    fn ensure_alignment(&mut self) -> Result<bool> {
+        while self.position == self.alignments.read_idx.len() {
             if !self.decode()? {
-                return Ok(None);
+                return Ok(false);
             }
         }
+        Ok(true)
     }
-    fn read(&mut self) -> Result<Vec<Alignment>> {
+    fn read(&mut self) -> Result<ConcatColumns> {
         loop {
-            if self.eof {
-                return Ok(vec![]);
-            }
-            let mut rows = std::mem::take(&mut self.pending);
-            loop {
-                match self.alignment()? {
-                    Some(row) if rows.first().is_some_and(|r| r.read_idx != row.read_idx) => {
-                        self.pending.push(row);
-                        break;
-                    }
-                    Some(row) => rows.push(row),
-                    None => {
-                        self.eof = true;
-                        break;
-                    }
+            let mut out = ConcatColumns::default();
+            while self.ensure_alignment()? {
+                let start = self.position;
+                let id = self.alignments.read_idx[start];
+                if out.read_idx.first().is_some_and(|&previous| previous != id) {
+                    break;
                 }
+                let end =
+                    start + self.alignments.read_idx[start..].partition_point(|&next| next == id);
+                out.append(self.alignments.as_view(), start, end);
+                self.position = end;
             }
             if self.options.concat_filter == Some(ConcatFilter::CompleteReads) {
-                if !rows.iter().any(|r| r.mapping_quality >= self.min_mapq) {
-                    rows.clear();
+                if !out.mapping_quality.iter().any(|&q| q >= self.min_mapq) {
+                    out = ConcatColumns::default();
                 }
             } else {
-                rows.retain(|r| r.mapping_quality >= self.min_mapq);
+                let mut filtered = ConcatColumns::default();
+                let mut start = 0;
+                while start < out.read_idx.len() {
+                    let end =
+                        matching_run(&out.mapping_quality, &mut start, usize::MAX, self.min_mapq);
+                    if start < end {
+                        filtered.append(out.as_view(), start, end);
+                    }
+                    start = end;
+                }
+                out = filtered;
             }
-            if !rows.is_empty() || self.eof {
-                return Ok(rows);
+            if !out.read_idx.is_empty() || self.eof {
+                return Ok(out);
             }
         }
     }
+    /// Legacy row output: materialize rows only after shared columnar batching.
     pub fn next_batch(&mut self) -> Result<Option<Batch>> {
+        let result = self
+            .next_columns()
+            .and_then(|b| b.map(ColumnBatch::into_rows).transpose());
+        if result.is_err() {
+            self.poison();
+        }
+        result
+    }
+    /// Owned typed buffers, independent of this reader's lifetime. Uses the same
+    /// cursor, boundaries, filtering and terminal-error state as next_batch.
+    pub fn next_columns(&mut self) -> Result<Option<ColumnBatch>> {
         ensure!(!self.failed, "streaming reader failed; close and reopen it");
         let result = self.next_inner();
         if result.is_err() {
@@ -191,54 +216,85 @@ impl StreamingReader {
         }
         result
     }
-    fn next_inner(&mut self) -> Result<Option<Batch>> {
+    fn next_inner(&mut self) -> Result<Option<ColumnBatch>> {
         let limit = self.options.batch_rows;
         if self.kind() == Kind::Pairs {
-            let mut out = vec![];
-            while out.len() < limit {
-                match self.pairs.next() {
-                    Some(row) if row.mapq >= self.min_mapq => out.push(row),
-                    Some(_) => (),
-                    None if self.decode()? => (),
-                    None => break,
+            let mut out = PairColumns::default();
+            while out.pos1.len() < limit {
+                if self.position == self.pairs.pos1.len() && !self.decode()? {
+                    break;
                 }
+                let end = matching_run(
+                    &self.pairs.mapq,
+                    &mut self.position,
+                    limit - out.pos1.len(),
+                    self.min_mapq,
+                );
+                if self.position < end {
+                    out.append(self.pairs.as_view(), self.position, end);
+                }
+                self.position = end;
             }
-            return Ok((!out.is_empty()).then_some(Batch::Pairs(out)));
+            return Ok((!out.pos1.is_empty()).then_some(ColumnBatch::Pairs(out)));
         }
-        let mut out = vec![];
-        // Matching rows needs no read-sized staging.
+        let mut out = ConcatColumns::default();
         if self.options.boundary == ReadBoundary::Rows
             && self.options.concat_filter != Some(ConcatFilter::CompleteReads)
         {
-            while out.len() < limit {
-                match self.alignment()? {
-                    Some(row) if row.mapping_quality >= self.min_mapq => out.push(row),
-                    Some(_) => (),
-                    None => break,
+            while out.read_idx.len() < limit && self.ensure_alignment()? {
+                let end = matching_run(
+                    &self.alignments.mapping_quality,
+                    &mut self.position,
+                    limit - out.read_idx.len(),
+                    self.min_mapq,
+                );
+                if self.position < end {
+                    out.append(self.alignments.as_view(), self.position, end);
                 }
+                self.position = end;
             }
         } else {
             loop {
-                if self.ready.is_empty() {
-                    self.ready = self.read()?.into();
+                if self.ready_position == self.ready.read_idx.len() {
+                    self.ready = ConcatColumns::default();
+                    self.ready = self.read()?;
+                    self.ready_position = 0;
                 }
-                if self.ready.is_empty() {
+                if self.ready.read_idx.is_empty() {
                     break;
                 }
-                if self.options.boundary == ReadBoundary::CompleteReads {
-                    if !out.is_empty() && self.ready.len() > limit - out.len() {
+                let remaining = self.ready.read_idx.len() - self.ready_position;
+                let n = if self.options.boundary == ReadBoundary::CompleteReads {
+                    if !out.read_idx.is_empty() && remaining > limit - out.read_idx.len() {
                         break;
                     }
-                    out.extend(self.ready.drain(..));
+                    remaining
                 } else {
-                    let n = self.ready.len().min(limit - out.len());
-                    out.extend(self.ready.drain(..n));
-                }
-                if out.len() >= limit {
+                    remaining.min(limit - out.read_idx.len())
+                };
+                out.append(
+                    self.ready.as_view(),
+                    self.ready_position,
+                    self.ready_position + n,
+                );
+                self.ready_position += n;
+                if out.read_idx.len() >= limit {
                     break;
                 }
             }
         }
-        Ok((!out.is_empty()).then_some(Batch::Concat(out)))
+        Ok((!out.read_idx.is_empty()).then_some(ColumnBatch::Concat(out)))
     }
+}
+
+// Skip unmatched values, then take one contiguous matching span. No row objects.
+fn matching_run(quality: &[u8], start: &mut usize, limit: usize, min_mapq: u8) -> usize {
+    while *start < quality.len() && quality[*start] < min_mapq {
+        *start += 1;
+    }
+    let mut end = *start;
+    while end < quality.len() && end - *start < limit && quality[end] >= min_mapq {
+        end += 1;
+    }
+    end
 }

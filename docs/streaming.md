@@ -1,4 +1,4 @@
-# Streaming row reads — 0.0.6
+# Streaming reads — row and column batches (0.0.6–0.0.7)
 
 All APIs below are **new**, additive capabilities, not features of previous
 pqsio releases. Existing Rust Reader, C reader functions, C++ Reader and Python
@@ -43,11 +43,39 @@ with StreamingReader("sample.concat.pqs", min_mapq=30, batch_rows=4096,
         consume(batch)  # possibly multiple complete reads
 ```
 
-StreamingReader offers row batches only. Its iter_reads and iter_columns methods
-raise NotImplementedError to avoid inheriting ambiguous semantics. With an old
-native library, its constructor reports missing streaming capability; old Reader
-methods remain usable. Python records are owned copies, including strings, and
-may outlive the reader. Keeping batches increases caller memory usage.
+`StreamingReader.iter_columns()` additionally yields the existing `PairColumns`
+or `ConcatColumns` types. Its options, grouping, filtering and EOF behavior are
+identical to `iter_batches()`:
+
+```python
+with StreamingReader("sample.concat.pqs", min_mapq=30, batch_rows=4096,
+                     boundary="complete_reads", filter_mode="complete_reads") as reader:
+    for batch in reader.iter_columns():
+        print(batch.read_offsets)  # UInt64 offsets into the alignment columns
+        positions = memoryview(batch.start)
+# positions still owns a reference to its Python array after the reader closes.
+```
+
+Each numeric column is copied once into a Python-owned array, using the existing
+column-batch copier; no intermediate Python row objects or native row vector is
+used by column output. Strings use UInt64 offsets + UTF-8 bytes as documented in
+[columnar.md](columnar.md). Empty strings and long coordinates are preserved.
+`iter_reads()` remains unsupported; select a boundary explicitly instead.
+
+Row and column iteration share **one cursor** and may be interleaved: switching
+representation consumes the next batch, without restarting or changing options.
+For `rows` boundary, concat `read_offsets` group fragments **within this batch**;
+a read can continue in the next batch. Only `complete_reads` boundary guarantees
+that all returned alignments of a read stay together. `matching_alignments`
+filtering still excludes low-MAPQ alignments even with complete-read boundaries.
+No empty batches are emitted; an empty/all-filtered stream terminates normally.
+
+A library exporting the original streaming API but not `pqsio_stream_next_columns`
+continues to support streaming row batches. Column iteration checks this symbol
+and raises a capability error before consuming input; it never falls back to rows.
+With a pre-streaming library, the constructor still reports missing streaming
+capability. Legacy Reader methods remain usable. Python records/arrays may outlive
+the reader; keeping batches increases caller memory usage.
 
 New Rust API:
 
@@ -63,6 +91,10 @@ while let Some(batch) = reader.next_batch()? {
 }
 ```
 
+For Rust columns, replace `next_batch()` above with `next_columns()`. It returns
+`Result<Option<ColumnBatch>>`, reusing the owned `Pairs` / `Concat` variants and
+their Vec buffers; output can outlive the stream.
+
 New C API (independent opaque pqsio_stream; no old ABI layout/signature changes):
 
 ```c
@@ -76,6 +108,23 @@ while ((status = pqsio_stream_next(reader, NULL, consume_concat, user)) == 1) {}
 pqsio_stream_destroy(reader);
 ```
 
+C column output uses the existing independently owned batch handle:
+
+```c
+pqsio_column_batch *batch = NULL;
+while ((status = pqsio_stream_next_columns(reader, &batch)) == 1) {
+    pqsio_concat_columns view;
+    if (pqsio_column_batch_concat(batch, &view) == 0) { /* consume view */ }
+    pqsio_column_batch_destroy(batch);
+}
+```
+
+The return status is 1 / 0 / -1; output is NULL on EOF/error. The output pointer
+must be writable/aligned and cannot overwrite a live batch. Getters borrow immutable
+buffers until batch destruction; closing/failing the stream does not invalidate
+previously returned batches. Resolve the new symbol when loading older libraries.
+No ABI version, old signatures, descriptor layouts or columnar version change.
+
 New C++17 API:
 
 ```cpp
@@ -85,6 +134,11 @@ while (reader.next(nullptr, consume_concat, user)) {}
 reader.close(); // optional early close; destructor also releases the handle
 ```
 
+C++ `StreamingReader::next_columns()` returns the existing move-only RAII
+`ColumnBatch`; `while (auto batch = reader.next_columns()) { auto view = batch.concat(); }`
+uses the same ownership rules as `Reader::next_columns()`. A view must not outlive
+its owning batch, but the batch can outlive the stream.
+
 New pqsio_stream_kind/contigs and C++ kind()/contigs() expose dataset information.
 C/C++ callbacks borrow arrays and strings only during the call, must return zero
 on success, and must not throw/unwind, reenter, close, or share the handle across
@@ -92,7 +146,8 @@ concurrent calls. Copy anything retained. Rust batches own their rows. No native
 pointer escapes Python callbacks. C destruction consumes a live handle (or accepts
 NULL); never reuse a destroyed pointer. Python/C++ close is idempotent.
 
-Any new next_batch/stream_next error, including a failed C callback, poisons the
+Any next_batch/next_columns/stream_next/stream_next_columns error, including a
+failed C callback or NULL column-output argument on a live stream, poisons the
 stream, releases decode/read buffers and file handles, and makes further reads
 fail until close/reopen. The failing batch is not resumable and no damaged shard
 is silently skipped. Previously delivered batches remain valid. Drop/close also
@@ -103,7 +158,9 @@ batches remain alive until those references are released.
 
 The new reader reuses Reader::open's metadata, contig table and shard ordering
 (numeric stems first, numeric order, then other names). It shares the legacy
-field conversion code, including wide coordinates and categorical/string decoding.
+DataFrame-to-column conversion code, including wide coordinates and
+categorical/string decoding. Both streaming representations share columnar decode,
+ID mapping, filtering and batch assembly. Rows are built only for final row output.
 
 For shard-local IDs, consecutive raw IDs are mapped to increasing global IDs
 starting at 1 **before filtering**, and mapping state is reset only at a shard
@@ -138,18 +195,21 @@ Memory consists of:
   buffers. Polars may mmap the entire file's virtual address range; this is not
   a heap copy or decoding of the entire shard. Its mapping is released after
   conversion. Resident page/cache behavior depends on the OS.
-* Conversion: the row-group DataFrame and owned row vector temporarily overlap.
-  An exhausted vector allocation can overlap the next group conversion until it
-  is replaced. Strings are
-  copied as required by the existing row API. No columnar public API is added.
-* Output: up to batch_rows owned rows, except an oversized complete read. C ABI
-  conversion creates temporary descriptors and C strings; Python creates record
-  objects while those native buffers still exist.
+* Conversion: the row-group DataFrame and owned typed column vectors temporarily
+  overlap. Exhausted column buffers are released before decoding the next group.
+  UTF-8 and numeric fields are copied into continuous owned buffers.
+* Output: retained contiguous spans are copied into an owned column batch, up to
+  batch_rows except an oversized complete read. C/C++ borrow the resulting buffers
+  through existing batch getters; Python bulk-copies each column into an initialized
+  array. Final row output instead allocates row structs/strings; its C ABI then
+  creates callback descriptors/C strings and Python record objects. Thus the shared
+  column implementation also changes row-path allocation costs.
 * Read staging: rows+matching_alignments needs no full-read staging. Other
-  combinations currently accumulate a raw complete read before deciding/filtering;
-  ready records plus one lookahead row can overlap the current batch and decoder.
-  Thus even a fully rejected very large read can require substantial temporary
-  memory. Complete-read filtering with rows still buffers a complete read.
+  combinations accumulate a raw complete read across groups/shards before filtering;
+  matching-alignments filtering copies retained spans to another column buffer.
+  A ready read and the current batch can overlap decoder columns containing the
+  start of the next read. Fully rejected very large reads can still require
+  substantial temporary memory. Complete-read filtering with rows buffers a full read.
 * Metadata: shard path list, current file footer/row-group metadata and a temporary
   metadata clone. These scale with shard count / row-group count, not decoded
   shard rows. Metadata cloning costs grow with the number of row groups.
@@ -160,5 +220,25 @@ a huge read requires read-sized staging/output where applicable. Changing an
 existing file's row-group layout is outside this change. No async prefetch,
 parallel reader, remote storage, format change or new dependency is introduced.
 
-See [measurement and validation results](streaming-results.md) for reproducible
-conditions, limitations, commands and observed memory/throughput.
+The earlier [row-only measurements](streaming-results.md) describe the 0.0.6
+implementation before shared columnar staging; they are not measurements of this
+extension. No new throughput/zero-copy claim is made. Focused validation uses
+`pixi run test-streaming` and `pixi run test`: cross-representation equality and
+batch boundaries, all filter/boundary combinations, multi-group/shard fixtures,
+legacy IDs, empty/all-filtered streams, UTF-8/empty strings, wide coordinates,
+terminal failures, interleaved calls and C/C++/Python ownership.
+
+## Column-output validation and changed files
+
+Validated through the local Pixi environment and `dev-release`: `pixi run test`
+passed 18 Rust tests and 38 Python/C/C++ tests; `pixi run lint` and
+`git diff --check` passed. The expanded `test-streaming` suite has 11 tests,
+including an independent legacy Reader q0 field oracle and compiled C11/C++17
+column consumers. No new performance measurement, aarch64 run or large dataset
+pipeline was performed for this extension.
+
+Changed files: `src/streaming.rs`, `src/columns.rs`, `src/ffi.rs`,
+`include/pqsio.h`, `include/pqsio.hpp`, `python/pqsio/__init__.py`,
+`python/pqsio/columns.py`, `tests/storage.rs`, `tests/test_streaming.py`,
+`tests/streaming.c`, `tests/streaming.cpp`, `README.md`, and `docs/streaming.md`.
+No dependency, lockfile, disk-format or existing ABI-signature changes.

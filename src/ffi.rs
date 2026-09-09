@@ -890,3 +890,35 @@ pub unsafe extern "C" fn pqsio_stream_contigs(
         call(|| bail!("null streaming reader"))
     }
 }
+
+/// Stream-owned cursor with independently owned column-batch output.
+/// # Safety
+/// r must be live and exclusive; out must be aligned/writable and must not
+/// overwrite a live owned batch. Returned buffers obey pqsio_column_batch_*.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stream_next_columns(
+    r: *mut StreamingReader,
+    out: *mut *mut ColumnBatch,
+) -> i32 {
+    call(|| {
+        if !out.is_null() {
+            *out = ptr::null_mut();
+        }
+        let r = r.as_mut().context("null streaming reader")?;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            ensure!(!out.is_null(), "null batch output");
+            match r.next_columns()? {
+                Some(batch) => {
+                    *out = Box::into_raw(Box::new(batch));
+                    Ok(1)
+                }
+                None => Ok(0),
+            }
+        }))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("panic while reading stream")));
+        if result.is_err() {
+            r.poison();
+        }
+        result
+    })
+}

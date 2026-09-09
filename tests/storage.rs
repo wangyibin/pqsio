@@ -547,3 +547,32 @@ fn streaming_options_and_complete_read_batches() -> anyhow::Result<()> {
     .is_err());
     Ok(())
 }
+
+#[test]
+fn streaming_columns_share_cursor_and_own_results() -> anyhow::Result<()> {
+    let scratch = Scratch::new();
+    let path = scratch.0.join("streaming-columns");
+    let rows: Vec<_> = (0..5).map(pair).collect();
+    let mut w = Writer::create(&path, Kind::Pairs, contigs(), 2)?;
+    w.write_pairs(&rows)?;
+    w.finish()?;
+    let mut reader = StreamingReader::open(
+        &path,
+        0,
+        ReadOptions {
+            batch_rows: 3,
+            ..Default::default()
+        },
+    )?;
+    let Some(ColumnBatch::Pairs(first)) = reader.next_columns()? else {
+        panic!()
+    };
+    assert_eq!(first.pos2, vec![u32::MAX as u64 + 1; 3]);
+    assert_eq!(first.read_id_offsets, [0, 5, 10, 15]);
+    assert_eq!(reader.next_batch()?, Some(Batch::Pairs(rows[3..].to_vec())));
+    assert!(reader.next_columns()?.is_none());
+    drop(reader);
+    assert_eq!(first.mapq, [0, 1, 2]);
+    assert_eq!(first.read_id_bytes, b"read0read1read2");
+    Ok(())
+}
