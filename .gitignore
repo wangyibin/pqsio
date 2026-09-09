@@ -1,0 +1,11 @@
+/target/
+/tests/output/
+__pycache__/
+*.egg-info/
+
+/comparison
+/comparison/polars0552/target/
+/comparison/polars0552/tests/output/
+/comparison/work/
+/comparison/.pixi/
+/comparison/target049/

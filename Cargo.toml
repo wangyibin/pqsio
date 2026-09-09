@@ -1,0 +1,19 @@
+[package]
+name = "pqsio"
+version = "0.0.1"
+edition = "2021"
+description = "Shared pairs and concat PQS storage for Rust, C, C++ and Python"
+license = "BSD-3-Clause"
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+anyhow = "1.0.70"
+chrono = "0.4.24"
+polars = { version = "0.49.1", default-features = false, features = ["parquet", "dtype-u8", "dtype-categorical"] }
+
+[profile.dev-release]
+inherits = "release"
+codegen-units = 16
+debug = 1
