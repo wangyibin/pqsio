@@ -7,6 +7,8 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
 };
+pub mod subset;
+pub use subset::{subset, SubsetOptions, SubsetResult, ReadIds};
 pub mod merge;
 pub use merge::{merge, MergeOptions, MergeResult, MergeSource};
 pub mod metadata;

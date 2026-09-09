@@ -172,6 +172,11 @@ int32_t pqsio_validate_json(const char *, uint32_t, size_t, pqsio_json_callback,
  * Inputs must stay unchanged throughout the call. See docs/merge.md. */
 int32_t pqsio_merge_json(const char *const *, size_t, const char *, size_t,
                          size_t, uint32_t, pqsio_json_callback, void *);
+/* Additive subset capability. Input/output are UTF-8 paths; options is a
+ * <=16 MiB JSON object (docs/subset.md). Same callback/publication contract
+ * as merge. No source mutation; q0 is scanned sequentially. */
+int32_t pqsio_subset_json(const char *, const char *, const char *,
+                          pqsio_json_callback, void *);
 /* Optional region query extension. No change to ABI v1 stream handles.
  * Positive-MAPQ matching queries use q1; all index modes target the selected quality.
  * Complete reads and shard-local IDs always use q0. JSON stats source_quality

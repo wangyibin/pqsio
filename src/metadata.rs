@@ -211,9 +211,9 @@ impl Parser {
         );
         let token: String = self.chars[start..self.at].iter().collect();
         match token.as_str() {
-            "True" => Ok(Value::Bool(true)),
-            "False" => Ok(Value::Bool(false)),
-            "None" => Ok(Value::Null),
+            "True" | "true" => Ok(Value::Bool(true)),
+            "False" | "false" => Ok(Value::Bool(false)),
+            "None" | "null" => Ok(Value::Null),
             _ => {
                 let dtype = token
                     .strip_prefix("pl.")

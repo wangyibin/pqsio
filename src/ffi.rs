@@ -1135,3 +1135,25 @@ pub unsafe extern "C" fn pqsio_query_stats_json(
         Ok(0)
     })
 }
+
+/// Streaming q0 subset, additive to ABI v1. Options are a <=16 MiB JSON object.
+/// A callback error is reported after publication; output remains valid.
+/// # Safety
+/// Strings must be valid NUL-terminated UTF-8; callback/user must remain valid.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_subset_json(
+    input: *const c_char, output: *const c_char, options: *const c_char,
+    callback: Option<JsonCallback>, user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let input = text(input)?;
+        let kind = Metadata::open(&input)?.supported_kind()?;
+        let options = crate::subset::parse_options(&text(options)?, kind)?;
+        let result = subset(input, text(output)?, options)?;
+        let json = result.to_json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0,
+            "subset succeeded and output was published, but result callback failed");
+        Ok(0)
+    })
+}

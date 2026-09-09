@@ -301,7 +301,9 @@ impl StreamingReader {
     /// cursor, boundaries, filtering and terminal-error state as next_batch.
     pub fn next_columns(&mut self) -> Result<Option<ColumnBatch>> {
         ensure!(!self.failed, "streaming reader failed; close and reopen it");
-        let result = self.next_inner();
+        let result = self.next_inner().with_context(|| {
+            format!("streaming shard {}", self.current_shard.display())
+        });
         if let (Ok(batch), Some(query)) = (&result, &mut self.query) {
             if let Some(batch) = batch {
                 query.stats.returned_rows += match batch {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.11 — 2026-09-09
+
+- Add q0-only, order-preserving subset export for Rust, Python and the C ABI,
+  with selection by MAPQ, contig, region and public read ID.
+- Support pairs endpoint policies and concat matching-alignment or complete-read
+  modes, preserve the contig table/logical IDs and regenerate output q1/counts.
+- Use staged publication and optional bounded provenance sidecars; reject
+  invalid source semantics, paths, options and records while cleaning failed
+  staging outputs.
+
 ## 0.0.10 — 2026-09-09
 
 - Add optional q0/q1 row-group summary indexes and exact region queries for

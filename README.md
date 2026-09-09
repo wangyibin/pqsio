@@ -32,8 +32,8 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
-`test-parallel`, `test-streaming`, `test-query`, `test-inspection` and `test-merge`.
-Python/native tests build the shared library first. `pixi run bench-columns --rows
+`test-parallel`, `test-streaming`, `test-query`, `test-inspection`, `test-merge`
+and `test-subset`. Python/native tests build the shared library first. `pixi run bench-columns --rows
 80000 --repetitions 5`, `pixi run bench-streaming` and `pixi run bench-query`
 explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved
@@ -55,6 +55,14 @@ information. `pqsio.validate(path, level="quick" | "full")` returns a diagnostic
 report distinguishing invalid data from incomplete checks. Rust APIs and additive
 C JSON callbacks share the implementation. See [contracts and limits](docs/inspection.md).
 Run `pixi run test-inspection` for focused tests.
+
+## Streaming subset
+
+`pqsio.subset(input, output, regions=[("chr1", 0, 1000)], min_mapq=30)`
+exports selected q0 records through native streaming columns, preserving fields,
+contigs, order and public logical IDs. Concat additionally supports
+`mode="complete_reads"`. Writer rebuilds q1 and counts; provenance is optional.
+See [subset API, semantics and memory limits](docs/subset.md).
 
 ## Streaming merge
 

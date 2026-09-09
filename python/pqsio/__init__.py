@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.10"
+__version__ = "0.0.11"
 
 @dataclass
 class Pair:
@@ -485,3 +485,5 @@ from .inspection import Metadata, Inspection, ValidationReport, inspect, validat
 from .merge import MergeResult, merge
 
 from .query import QueryReader, build_index
+
+from .subset import SubsetResult, subset

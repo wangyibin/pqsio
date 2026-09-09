@@ -122,7 +122,7 @@ pub(crate) struct Predicate {
     min_mapq: u8,
 }
 impl Predicate {
-    fn new(contigs: &[Contig], options: &QueryOptions) -> Result<Self> {
+    pub(crate) fn new(contigs: &[Contig], options: &QueryOptions) -> Result<Self> {
         let mut regions: BTreeMap<u32, Vec<(u64, u64)>> = BTreeMap::new();
         for r in &options.regions {
             let id = contigs
@@ -157,7 +157,7 @@ impl Predicate {
     pub(crate) fn is_empty(&self) -> bool {
         self.regions.is_empty()
     }
-    fn overlap(&self, chrom: u32, start: u64, end: u64) -> bool {
+    pub(crate) fn overlap(&self, chrom: u32, start: u64, end: u64) -> bool {
         self.regions.get(&chrom).is_some_and(|rs| {
             let i = rs.partition_point(|&(_, b)| b <= start);
             rs.get(i).is_some_and(|&(a, _)| a < end)
