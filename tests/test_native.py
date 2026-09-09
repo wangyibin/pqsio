@@ -11,6 +11,18 @@ OUTPUT=PROJECT/"tests/output"
 OUTPUT.mkdir(exist_ok=True)
 
 class NativeABI(unittest.TestCase):
+    def test_cpp_parallel_api(self):
+        lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
+        with tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:
+            exe=Path(tmp)/"parallel"
+            subprocess.run(["c++","-std=c++17","-pthread","-Wall","-Wextra","-Werror","-I",str(PROJECT/"include"),
+                str(PROJECT/"tests/parallel.cpp"),"-L",str(lib.parent),"-lpqsio","-Wl,-rpath,"+str(lib.parent),
+                "-o",str(exe)],check=True,capture_output=True,text=True,timeout=60)
+            path=Path(tmp)/"parallel.pqs"
+            subprocess.run([str(exe),str(path)],check=True,capture_output=True,text=True,timeout=60)
+            with Reader(path) as reader:
+                self.assertEqual(len([r for b in reader.iter_batches() for r in b]),3)
+
     def test_cpp_bulk_api(self):
         lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
         with tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:

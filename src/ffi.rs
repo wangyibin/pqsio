@@ -1,5 +1,5 @@
 //! C ABI v1. Valid handles and readable pointer/length pairs are caller obligations.
-//! All functions catch Rust panics. Handles must not be used concurrently.
+//! All functions catch Rust panics. Only producer submission supports concurrent calls.
 use crate::*;
 use std::{
     cell::RefCell,
@@ -116,21 +116,7 @@ pub unsafe extern "C" fn pqsio_writer_open(
 pub unsafe extern "C" fn pqsio_write_pairs(w: *mut Writer, rows: *const CPair, n: usize) -> i32 {
     call(|| {
         let w = w.as_mut().context("null writer")?;
-        let rs = slice(rows, n)?
-            .iter()
-            .map(|r| {
-                Ok(Pair {
-                    read_id: text(r.read_id)?,
-                    chrom1: r.chrom1,
-                    pos1: r.pos1,
-                    chrom2: r.chrom2,
-                    pos2: r.pos2,
-                    strand1: r.strand1,
-                    strand2: r.strand2,
-                    mapq: r.mapq,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let rs = copy_pairs(rows, n)?;
         w.write_pairs_owned(rs)?;
         Ok(0)
     })
@@ -146,24 +132,7 @@ pub unsafe extern "C" fn pqsio_write_read(
 ) -> i32 {
     call(|| {
         let w = w.as_mut().context("null writer")?;
-        let rs = slice(rows, n)?
-            .iter()
-            .map(|r| {
-                Ok(Alignment {
-                    read_idx: r.read_idx,
-                    read_length: r.read_length,
-                    read_start: r.read_start,
-                    read_end: r.read_end,
-                    strand: r.strand,
-                    chrom: r.chrom,
-                    start: r.start,
-                    end: r.end,
-                    mapping_quality: r.mapping_quality,
-                    identity: r.identity,
-                    filter_reason: text(r.filter_reason)?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let rs = copy_alignments(rows, n)?;
         w.write_reads_owned(rs, &[0, n])?;
         Ok(0)
     })
@@ -184,24 +153,7 @@ pub unsafe extern "C" fn pqsio_write_reads(
     call(|| {
         let w = w.as_mut().context("null writer")?;
         let offsets = slice(offsets, offset_count)?;
-        let rs = slice(rows, n)?
-            .iter()
-            .map(|r| {
-                Ok(Alignment {
-                    read_idx: r.read_idx,
-                    read_length: r.read_length,
-                    read_start: r.read_start,
-                    read_end: r.read_end,
-                    strand: r.strand,
-                    chrom: r.chrom,
-                    start: r.start,
-                    end: r.end,
-                    mapping_quality: r.mapping_quality,
-                    identity: r.identity,
-                    filter_reason: text(r.filter_reason)?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let rs = copy_alignments(rows, n)?;
         w.write_reads_owned(rs, offsets)?;
         Ok(0)
     })
@@ -379,6 +331,178 @@ pub unsafe extern "C" fn pqsio_reader_destroy(r: *mut Reader) -> i32 {
     call(|| {
         if !r.is_null() {
             drop(Box::from_raw(r));
+        }
+        Ok(0)
+    })
+}
+
+unsafe fn copy_pairs(rows: *const CPair, n: usize) -> Result<Vec<Pair>> {
+    slice(rows, n)?
+        .iter()
+        .map(|r| {
+            Ok(Pair {
+                read_id: text(r.read_id)?,
+                chrom1: r.chrom1,
+                pos1: r.pos1,
+                chrom2: r.chrom2,
+                pos2: r.pos2,
+                strand1: r.strand1,
+                strand2: r.strand2,
+                mapq: r.mapq,
+            })
+        })
+        .collect::<Result<Vec<_>>>()
+}
+
+unsafe fn copy_alignments(rows: *const CAlignment, n: usize) -> Result<Vec<Alignment>> {
+    slice(rows, n)?
+        .iter()
+        .map(|r| {
+            Ok(Alignment {
+                read_idx: r.read_idx,
+                read_length: r.read_length,
+                read_start: r.read_start,
+                read_end: r.read_end,
+                strand: r.strand,
+                chrom: r.chrom,
+                start: r.start,
+                end: r.end,
+                mapping_quality: r.mapping_quality,
+                identity: r.identity,
+                filter_reason: text(r.filter_reason)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()
+}
+
+/// # Safety
+/// Same path/contig/output pointer requirements as pqsio_writer_open.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_parallel_open(
+    path: *const c_char,
+    kind: u32,
+    contigs: *const CContig,
+    n: usize,
+    chunk_size: usize,
+    workers: usize,
+    queue_capacity: usize,
+    max_batch_bytes: usize,
+    out: *mut *mut ParallelWriter,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null output handle");
+        *out = ptr::null_mut();
+        let kind = match kind {
+            0 => Kind::Pairs,
+            1 => Kind::Concat,
+            _ => bail!("kind must be 0 or 1"),
+        };
+        let cs = slice(contigs, n)?
+            .iter()
+            .map(|c| {
+                Ok(Contig {
+                    name: text(c.name)?,
+                    length: c.length,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        *out = Box::into_raw(Box::new(ParallelWriter::create(
+            text(path)?,
+            kind,
+            cs,
+            chunk_size,
+            ParallelOptions {
+                workers,
+                queue_capacity,
+                max_batch_bytes,
+            },
+        )?));
+        Ok(0)
+    })
+}
+/// # Safety
+/// Writer must remain live and not be finished/destroyed during this call.
+/// Out must be writable and not hold an existing owned producer.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_parallel_producer(
+    w: *const ParallelWriter,
+    out: *mut *mut Producer,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null output handle");
+        *out = ptr::null_mut();
+        *out = Box::into_raw(Box::new(
+            w.as_ref().context("null parallel writer")?.producer(),
+        ));
+        Ok(0)
+    })
+}
+/// # Safety
+/// Producer must remain live for the call. Concurrent submissions are allowed.
+/// Rows and their strings must be readable for the call, as with write_pairs.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_producer_pairs(
+    p: *const Producer,
+    sequence: u64,
+    rows: *const CPair,
+    n: usize,
+) -> i32 {
+    call(|| {
+        p.as_ref()
+            .context("null producer")?
+            .write_pairs(sequence, copy_pairs(rows, n)?)?;
+        Ok(0)
+    })
+}
+/// # Safety
+/// Producer must remain live. Concurrent submissions are allowed. Rows,
+/// offsets and strings must be readable as with pqsio_write_reads.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_producer_reads(
+    p: *const Producer,
+    sequence: u64,
+    rows: *const CAlignment,
+    n: usize,
+    offsets: *const usize,
+    offset_count: usize,
+) -> i32 {
+    call(|| {
+        p.as_ref().context("null producer")?.write_reads(
+            sequence,
+            copy_alignments(rows, n)?,
+            slice(offsets, offset_count)?.to_vec(),
+        )?;
+        Ok(0)
+    })
+}
+/// # Safety
+/// Writer must be live and exclusively accessed. Producers can remain live.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_parallel_finish(w: *mut ParallelWriter) -> i32 {
+    call(|| {
+        w.as_mut().context("null parallel writer")?.finish()?;
+        Ok(0)
+    })
+}
+/// # Safety
+/// Writer must be null or live and exclusively owned; becomes invalid.
+/// This aborts unfinished work and waits for workers. Producers remain valid.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_parallel_destroy(w: *mut ParallelWriter) -> i32 {
+    call(|| {
+        if !w.is_null() {
+            drop(Box::from_raw(w));
+        }
+        Ok(0)
+    })
+}
+/// # Safety
+/// Producer must be null or live with no calls in progress; becomes invalid.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_producer_destroy(p: *mut Producer) -> i32 {
+    call(|| {
+        if !p.is_null() {
+            drop(Box::from_raw(p));
         }
         Ok(0)
     })

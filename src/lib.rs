@@ -8,6 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 pub mod ffi;
+pub mod parallel;
+pub use parallel::{ParallelOptions, ParallelWriter, Producer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -74,6 +76,7 @@ pub struct Writer {
     counts: Counts,
     finished: bool,
     failed: bool,
+    executor: Option<parallel::Executor>,
 }
 impl Writer {
     pub fn create(
@@ -129,6 +132,7 @@ impl Writer {
             counts: Counts::default(),
             finished: false,
             failed: false,
+            executor: None,
         })
     }
     fn active(&self) -> Result<()> {
@@ -299,30 +303,23 @@ impl Writer {
         result
     }
     fn flush_inner(&mut self) -> Result<()> {
-        let mut frame = match self.kind {
-            Kind::Pairs => pair_frame(&self.pairs, &self.contigs)?,
-            Kind::Concat => concat_frame(&self.concat, &self.contigs)?,
+        let job = parallel::Shard {
+            kind: self.kind,
+            contigs: self.contigs.clone(),
+            staging: self.staging.clone(),
+            index: self.shard,
+            pairs: std::mem::take(&mut self.pairs),
+            concat: std::mem::take(&mut self.concat),
+            concats: self.shard_concats,
         };
-        let mq = if self.kind == Kind::Pairs {
-            "mapq"
+        if let Some(executor) = &mut self.executor {
+            executor.submit(job, &mut self.counts)?;
         } else {
-            "mapping_quality"
-        };
-        let mut q1 = frame.filter(&frame.column(mq)?.u8()?.gt_eq(1))?;
-        ParquetWriter::new(File::create(
-            self.staging.join(format!("q0/{}.parquet", self.shard)),
-        )?)
-        .finish(&mut frame)?;
-        if q1.height() > 0 {
-            ParquetWriter::new(File::create(
-                self.staging.join(format!("q1/{}.parquet", self.shard)),
-            )?)
-            .finish(&mut q1)?;
+            parallel::add_counts(&mut self.counts, job.run()?);
+            // Preserve synchronous buffer reuse across shards.
+            self.pairs = job.pairs;
+            self.concat = job.concat;
         }
-        self.counts.q0_records += frame.height() as u64;
-        self.counts.q1_records += q1.height() as u64;
-        self.counts.q0_concats += self.shard_concats[0];
-        self.counts.q1_concats += self.shard_concats[1];
         self.shard_concats = [0, 0];
         self.pairs.clear();
         self.concat.clear();
@@ -339,6 +336,9 @@ impl Writer {
     }
     fn finish_inner(&mut self) -> Result<Counts> {
         self.flush()?;
+        if let Some(executor) = &mut self.executor {
+            executor.drain(&mut self.counts)?;
+        }
         let sizes = self
             .contigs
             .iter()
@@ -377,6 +377,8 @@ impl Writer {
 }
 impl Drop for Writer {
     fn drop(&mut self) {
+        // Join file writers before removing their staging directory.
+        self.executor.take();
         if !self.finished {
             let _ = fs::remove_dir_all(&self.staging);
         }

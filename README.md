@@ -53,6 +53,18 @@ order. For bulk submission, use `write_reads(&rows, &offsets)`; offsets are
 transfer strings without cloning them. The same read must never be submitted twice. This contract avoids an
 unbounded set of previously seen read IDs and prevents accidental group splits.
 
+## Parallel writing (0.0.3)
+
+`ParallelWriter` and shareable `Producer` interfaces are available in Rust,
+Python, C and C++17. They provide an ordered bounded input queue, concurrent
+shard encoding, and final publication after all workers succeed. Batch sequence
+numbers start at zero; concat batches must contain complete reads. Existing
+synchronous handles remain non-thread-safe.
+
+See [parallel API, memory limits and examples](docs/parallel.md) and
+[acceptance results](docs/parallel-acceptance.md). Batch submission is asynchronous:
+`finish()` is required to observe all errors. Each batch ends a shard.
+
 ## Python
 
 Use `PYTHONPATH=pqsio/python` from the workspace root, or install this directory

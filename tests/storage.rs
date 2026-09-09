@@ -250,3 +250,153 @@ fn empty_bulk_is_noop_and_io_error_poisoning_survives() {
     assert!(!p.exists());
     assert!(!s.0.join("failure.pqs.partial").exists());
 }
+
+fn parallel_options() -> ParallelOptions {
+    ParallelOptions {
+        workers: 2,
+        queue_capacity: 1,
+        max_batch_bytes: 4096,
+    }
+}
+#[test]
+fn parallel_pairs_out_of_order_reserved_slot_and_counts() {
+    let tmp = Scratch::new();
+    let path = tmp.0.join("parallel");
+    let mut w =
+        ParallelWriter::create(&path, Kind::Pairs, contigs(), 2, parallel_options()).unwrap();
+    let p = w.producer();
+    // Fill the only future-batch slot; sequence zero must still be admitted.
+    p.write_pairs(1, vec![pair(1)]).unwrap();
+    let p2 = p.clone();
+    let t = std::thread::spawn(move || p2.write_pairs(2, vec![pair(2)]));
+    p.write_pairs(0, vec![pair(0)]).unwrap();
+    t.join().unwrap().unwrap();
+    let c = w.finish().unwrap();
+    assert_eq!((c.q0_records, c.q1_records), (3, 2));
+    let mut r = Reader::open(&path, 0).unwrap();
+    let mut rows = Vec::new();
+    while let Some(Batch::Pairs(b)) = r.next_batch().unwrap() {
+        rows.extend(b);
+    }
+    assert_eq!(rows, vec![pair(0), pair(1), pair(2)]);
+    assert!(p.write_pairs(3, vec![]).is_err());
+    assert!(w.finish().is_err());
+}
+#[test]
+fn parallel_concat_complete_reads_and_cross_batch_validation() {
+    let tmp = Scratch::new();
+    let path = tmp.0.join("concat");
+    let mut w =
+        ParallelWriter::create(&path, Kind::Concat, contigs(), 2, parallel_options()).unwrap();
+    let p = w.producer();
+    let rows = vec![
+        alignment(1, 0),
+        alignment(1, 1),
+        alignment(1, 20),
+        alignment(2, 0),
+    ];
+    p.write_reads(0, rows.clone(), vec![0, 3, 4]).unwrap();
+    p.write_reads(1, vec![alignment(3, 10)], vec![0, 1])
+        .unwrap();
+    let c = w.finish().unwrap();
+    assert_eq!(
+        (c.q0_records, c.q1_records, c.q0_concats, c.q1_concats),
+        (5, 3, 3, 2)
+    );
+    let mut r = Reader::open(&path, 0).unwrap();
+    assert_eq!(
+        r.next_batch().unwrap(),
+        Some(Batch::Concat(rows[..3].to_vec()))
+    );
+    assert_eq!(
+        r.next_batch().unwrap(),
+        Some(Batch::Concat(rows[3..].to_vec()))
+    );
+    assert_eq!(
+        r.next_batch().unwrap(),
+        Some(Batch::Concat(vec![alignment(3, 10)]))
+    );
+    let bad = tmp.0.join("bad");
+    let mut w =
+        ParallelWriter::create(&bad, Kind::Concat, contigs(), 2, parallel_options()).unwrap();
+    let p = w.producer();
+    p.write_reads(0, vec![alignment(4, 0)], vec![0, 1]).unwrap();
+    let _ = p.write_reads(1, vec![alignment(3, 0)], vec![0, 1]);
+    assert!(w
+        .finish()
+        .unwrap_err()
+        .to_string()
+        .contains("strictly increasing"));
+    assert!(!bad.exists());
+    assert!(!tmp.0.join("bad.partial").exists());
+}
+#[test]
+fn parallel_gap_duplicate_size_empty_and_abort() {
+    let tmp = Scratch::new();
+    let path = tmp.0.join("gap");
+    let mut w =
+        ParallelWriter::create(&path, Kind::Pairs, contigs(), 2, parallel_options()).unwrap();
+    let p = w.producer();
+    let mut oversized = pair(0);
+    oversized.read_id = "x".repeat(4096);
+    assert!(p.write_pairs(0, vec![oversized]).is_err());
+    p.write_pairs(1, vec![]).unwrap();
+    assert!(p.write_pairs(1, vec![]).is_err());
+    assert!(w
+        .finish()
+        .unwrap_err()
+        .to_string()
+        .contains("missing batch sequence 0"));
+    assert!(!tmp.0.join("gap.partial").exists());
+    let mut w = ParallelWriter::create(
+        tmp.0.join("empty"),
+        Kind::Pairs,
+        contigs(),
+        2,
+        parallel_options(),
+    )
+    .unwrap();
+    assert_eq!(w.finish().unwrap().q0_records, 0);
+    let w = ParallelWriter::create(
+        tmp.0.join("abort"),
+        Kind::Pairs,
+        contigs(),
+        2,
+        parallel_options(),
+    )
+    .unwrap();
+    let p = w.producer();
+    p.write_pairs(1, vec![pair(1)]).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let t = std::thread::spawn(move || {
+        tx.send(p.write_pairs(2, vec![pair(2)]).is_err()).unwrap();
+    });
+    drop(w);
+    assert!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+    t.join().unwrap();
+    assert!(!tmp.0.join("abort.partial").exists());
+}
+#[test]
+fn parallel_worker_failure_wakes_idle_coordinator_and_producers() {
+    let tmp = Scratch::new();
+    let path = tmp.0.join("io");
+    let mut w =
+        ParallelWriter::create(&path, Kind::Pairs, contigs(), 2, parallel_options()).unwrap();
+    let p = w.producer();
+    // A directory at a file destination deterministically fails worker I/O.
+    fs::create_dir(tmp.0.join("io.partial/q0/0.parquet")).unwrap();
+    p.write_pairs(0, vec![pair(0)]).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let t = std::thread::spawn(move || {
+        // Future batches eventually block, then must wake on the worker error.
+        let result = p
+            .write_pairs(2, vec![])
+            .and_then(|_| p.write_pairs(3, vec![]));
+        tx.send(result.is_err()).unwrap();
+    });
+    assert!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+    t.join().unwrap();
+    assert!(w.finish().is_err());
+    assert!(!path.exists());
+    assert!(!tmp.0.join("io.partial").exists());
+}

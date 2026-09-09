@@ -3,8 +3,9 @@ import ctypes as C
 import ctypes.util
 from dataclasses import dataclass, fields
 import os
+import threading
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 @dataclass
 class Pair:
@@ -71,6 +72,19 @@ def _library():
         "reader_contigs": ([C.c_void_p, _ContigsCB, C.c_void_p], C.c_int32),
         "reader_next": ([C.c_void_p, _PairsCB, _ConcatCB, C.c_void_p], C.c_int32),
     }
+    parallel_signatures = {
+        "parallel_open": ([C.c_char_p, C.c_uint32, C.POINTER(_Contig), C.c_size_t,
+                           C.c_size_t, C.c_size_t, C.c_size_t, C.c_size_t, C.POINTER(C.c_void_p)], C.c_int32),
+        "parallel_producer": ([C.c_void_p, C.POINTER(C.c_void_p)], C.c_int32),
+        "producer_pairs": ([C.c_void_p, C.c_uint64, C.POINTER(_Pair), C.c_size_t], C.c_int32),
+        "producer_reads": ([C.c_void_p, C.c_uint64, C.POINTER(_Alignment), C.c_size_t,
+                            C.POINTER(C.c_size_t), C.c_size_t], C.c_int32),
+        "parallel_finish": ([C.c_void_p], C.c_int32),
+        "parallel_destroy": ([C.c_void_p], C.c_int32),
+        "producer_destroy": ([C.c_void_p], C.c_int32),
+    }
+    if hasattr(lib, "pqsio_parallel_open"):
+        signatures.update(parallel_signatures)
     for name, (args, result) in signatures.items():
         if name == "write_reads" and not hasattr(lib, "pqsio_write_reads"):
             continue  # Existing methods still work with ABI v1 from pqsio 0.0.1.
@@ -203,6 +217,121 @@ class ConcatWriter(_Writer):
             rows.extend(read)
             offsets.append(len(rows))
         self.write_batch(rows, offsets)
+
+class Producer:
+    """Thread-safe batch submission; sequences start at 0 and have no gaps.
+
+    A successful call queues data. Validation/I/O errors can surface at finish.
+    Callers must keep the next expected sequence schedulable under backpressure.
+    """
+    def __init__(self, writer):
+        writer._active()
+        self._lib = writer._lib
+        self._kind = writer._kind
+        self._handle = C.c_void_p()
+        self._lock = threading.Lock()
+        self._calls = 0
+        self._closed = False
+        _check(self._lib.pqsio_parallel_producer(writer._handle, C.byref(self._handle)))
+
+    def _submit(self, name, *args):
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Producer is closed")
+            self._calls += 1
+            handle = self._handle
+        try:
+            _check(getattr(self._lib, name)(handle, *args))
+        finally:
+            with self._lock:
+                self._calls -= 1
+                if self._closed and self._calls == 0:
+                    self._destroy()
+
+    def write_batch(self, sequence, rows, read_offsets=None):
+        sequence = _uint(sequence, 64)
+        rows = list(rows)
+        cls = _Pair if self._kind == 0 else _Alignment
+        batch = (cls * len(rows))(*[_encode(r, cls) for r in rows])
+        if self._kind == 0:
+            if read_offsets is not None:
+                raise ValueError("Pairs batches do not take read offsets")
+            self._submit("pqsio_producer_pairs", sequence, batch, len(batch))
+        else:
+            if read_offsets is None:
+                raise ValueError("Concat batches require complete-read offsets")
+            offsets = list(read_offsets)
+            width = C.sizeof(C.c_size_t) * 8
+            offsets = (C.c_size_t * len(offsets))(*[_uint(i, width) for i in offsets])
+            self._submit("pqsio_producer_reads", sequence, batch, len(batch), offsets, len(offsets))
+
+    def write_reads(self, sequence, reads):
+        if self._kind != 1:
+            raise ValueError("write_reads requires concat")
+        rows, offsets = [], [0]
+        for read in reads:
+            rows.extend(read)
+            offsets.append(len(rows))
+        self.write_batch(sequence, rows, offsets)
+
+    def _destroy(self):
+        if self._handle.value:
+            self._lib.pqsio_producer_destroy(self._handle)
+            self._handle = C.c_void_p()
+
+    def close(self):
+        # Defer freeing the native handle until concurrent calls have returned.
+        with self._lock:
+            self._closed = True
+            if self._calls == 0:
+                self._destroy()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        if hasattr(self, "_lock"):
+            self.close()
+
+class ParallelWriter(_Writer):
+    """Owner of one parallel PQS output; owner lifecycle calls are exclusive.
+
+    Share producers between threads. Join submitters before finish. Each batch
+    ends a shard; max_batch_bytes bounds native input, not Python objects/RSS.
+    """
+    def __init__(self, path, contigs, kind="pairs", chunk_size=1_000_000,
+                 workers=2, queue_capacity=4, max_batch_bytes=64 * 1024 * 1024):
+        self._handle = C.c_void_p()
+        self._lib = _library()
+        if not hasattr(self._lib, "pqsio_parallel_open"):
+            raise RuntimeError("Parallel writing requires a shared library with the parallel extension")
+        if kind not in ("pairs", "concat"):
+            raise ValueError("kind must be pairs or concat")
+        self._kind = 0 if kind == "pairs" else 1
+        entries = list(contigs.items()) if hasattr(contigs, "items") else list(contigs)
+        cs = (_Contig * len(entries))(*[_Contig(_utf8(n), _uint(s, 64)) for n, s in entries])
+        width = C.sizeof(C.c_size_t) * 8
+        values = [_uint(v, width) for v in (chunk_size, workers, queue_capacity, max_batch_bytes)]
+        _check(self._lib.pqsio_parallel_open(_utf8(os.fspath(path)), self._kind, cs, len(cs),
+                                            *values, C.byref(self._handle)))
+
+    def producer(self):
+        return Producer(self)
+
+    def finish(self):
+        self._active()
+        try:
+            _check(self._lib.pqsio_parallel_finish(self._handle))
+        finally:
+            self.close()
+
+    def close(self):
+        if self._handle.value:
+            self._lib.pqsio_parallel_destroy(self._handle)
+            self._handle = C.c_void_p()
 
 class Reader:
     def __init__(self, path, min_mapq=0):

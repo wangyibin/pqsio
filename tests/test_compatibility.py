@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import polars as pl
-from pqsio import Reader, Pair, Alignment, PairsWriter, ConcatWriter
+from pqsio import Reader, Pair, Alignment, PairsWriter, ConcatWriter, ParallelWriter
 
 ROOT=Path(__file__).parent / "output"
 ROOT.mkdir(exist_ok=True)
@@ -50,6 +50,25 @@ class Compatibility(unittest.TestCase):
             reader.init_read()
             self.assertEqual(reader.metadata["format"],kind)
             for q, count in ((0,2),(1,1),(40,0)):
+                batches=reader.read(min_mapq=q) if kind=="pairs" else reader.read_concat(min_mapq=q)
+                self.assertEqual(sum(b.height for b in batches),count)
+
+    def test_parallel_output_with_existing_cphasing_reader(self):
+        from cphasing.pqs import PQS
+        for kind in ("pairs", "concat"):
+            path=self.root / (kind+"_parallel")
+            with ParallelWriter(path,{"a":100},kind=kind,chunk_size=2,workers=2) as w:
+                with w.producer() as p:
+                    if kind=="pairs":
+                        p.write_batch(1,[Pair("y",0,2,0,99,"-","+",30)])
+                        p.write_batch(0,[Pair("x",0,1,0,100,"+","-",0)])
+                    else:
+                        p.write_reads(1,[[Alignment(2,100,0,50,"+",0,0,50,30,0.5)]])
+                        p.write_reads(0,[[Alignment(1,100,0,50,"+",0,0,50,0,0.5)]])
+            reader=PQS(str(path))
+            reader.init_read()
+            self.assertEqual(reader.metadata["format"],kind)
+            for q,count in ((0,2),(1,1),(40,0)):
                 batches=reader.read(min_mapq=q) if kind=="pairs" else reader.read_concat(min_mapq=q)
                 self.assertEqual(sum(b.height for b in batches),count)
 

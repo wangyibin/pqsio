@@ -22,6 +22,37 @@ public:
     }
     void finish() { check(pqsio_writer_finish(handle_)); }
 };
+class Producer {
+    pqsio_producer *handle_ = nullptr;
+    friend class ParallelWriter;
+    explicit Producer(pqsio_parallel_writer *writer) { check(pqsio_parallel_producer(writer, &handle_)); }
+public:
+    Producer(const Producer &) = delete;
+    Producer &operator=(const Producer &) = delete;
+    Producer(Producer &&other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
+    ~Producer() { pqsio_producer_destroy(handle_); }
+    void write_pairs(uint64_t sequence, const std::vector<pqsio_pair> &rows) const {
+        check(pqsio_producer_pairs(handle_, sequence, rows.data(), rows.size()));
+    }
+    void write_reads(uint64_t sequence, const std::vector<pqsio_alignment> &rows, const std::vector<size_t> &offsets) const {
+        check(pqsio_producer_reads(handle_, sequence, rows.data(), rows.size(), offsets.data(), offsets.size()));
+    }
+};
+class ParallelWriter {
+    pqsio_parallel_writer *handle_ = nullptr;
+public:
+    ParallelWriter(const std::string &path, Kind kind, const std::vector<pqsio_contig> &contigs,
+                   size_t chunksize = 1000000, size_t workers = 2, size_t queue_capacity = 4,
+                   size_t max_batch_bytes = 64 * 1024 * 1024) {
+        check(pqsio_parallel_open(path.c_str(), static_cast<uint32_t>(kind), contigs.data(), contigs.size(),
+                                 chunksize, workers, queue_capacity, max_batch_bytes, &handle_));
+    }
+    ParallelWriter(const ParallelWriter &) = delete;
+    ParallelWriter &operator=(const ParallelWriter &) = delete;
+    ~ParallelWriter() { pqsio_parallel_destroy(handle_); }
+    Producer producer() { return Producer(handle_); }
+    void finish() { check(pqsio_parallel_finish(handle_)); }
+};
 class Reader {
     pqsio_reader *handle_ = nullptr;
 public:

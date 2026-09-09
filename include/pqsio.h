@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 /* ABI v1. UTF-8 strings; contig IDs index the supplied ordered contig array.
- * Handles are not thread safe. All pointers must be valid for the call.
+ * Only producer submissions are thread safe; other handles are not. All pointers must be valid for the call.
  * Write calls copy/consume inputs before returning. Callback arrays/strings
  * are borrowed for the callback duration only. Never throw across callbacks.
  * Return: 0 success / -1 error unless otherwise specified. Read last_error
@@ -25,6 +25,26 @@ typedef struct {
     uint8_t strand; uint32_t chrom; uint64_t start, end;
     uint8_t mapping_quality; float identity; const char *filter_reason;
 } pqsio_alignment;
+/* Parallel extension: sequences are unique, contiguous from 0. Submission
+ * may block; keep the next expected batch schedulable. Queue reserves one
+ * extra slot for it. max_batch_bytes bounds owned input, not Parquet/RSS.
+ * Each batch is a shard boundary; concat reads must be complete and ordered.
+ * Queued success is asynchronous: finish after all submissions to observe
+ * validation/I/O errors. Missing sequence gaps fail at finish.
+ * Producers may outlive their writer and then return errors. Concurrent
+ * submissions on one producer are allowed; destroy requires no active calls.
+ * Input memory must remain valid until the submission call returns.
+ */
+typedef struct pqsio_parallel_writer pqsio_parallel_writer;
+typedef struct pqsio_producer pqsio_producer;
+int32_t pqsio_parallel_open(const char *, uint32_t, const pqsio_contig *, size_t,
+    size_t chunk_size, size_t workers, size_t queue_capacity, size_t max_batch_bytes, pqsio_parallel_writer **);
+int32_t pqsio_parallel_producer(const pqsio_parallel_writer *, pqsio_producer **);
+int32_t pqsio_producer_pairs(const pqsio_producer *, uint64_t sequence, const pqsio_pair *, size_t);
+int32_t pqsio_producer_reads(const pqsio_producer *, uint64_t sequence, const pqsio_alignment *, size_t, const size_t *, size_t);
+int32_t pqsio_parallel_finish(pqsio_parallel_writer *);
+int32_t pqsio_parallel_destroy(pqsio_parallel_writer *);
+int32_t pqsio_producer_destroy(pqsio_producer *);
 uint32_t pqsio_abi_version(void);
 const char *pqsio_last_error(void);
 /* kind: 0 pairs, 1 concat. Existing output/.partial paths are rejected. */
