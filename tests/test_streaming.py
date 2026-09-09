@@ -39,10 +39,13 @@ class Streaming(unittest.TestCase):
             pl.Series('end', [2**32+i+50 for i in range(len(ids))], dtype=pl.UInt64),
             pl.Series('identity', [i/16 for i in range(len(ids))], dtype=pl.Float32),
         )
-        for old in (path/'q0').glob('*.parquet'): old.unlink()
+        for quality in ('q0','q1'):
+            for old in (path/quality).glob('*.parquet'): old.unlink()
         bounds = (0, *cuts, len(ids))
         for index, (a,b) in enumerate(zip(bounds,bounds[1:])):
-            frame.slice(a,b-a).write_parquet(path/'q0'/f'{index}.parquet', row_group_size=2)
+            chunk=frame.slice(a,b-a)
+            chunk.write_parquet(path/'q0'/f'{index}.parquet', row_group_size=2)
+            chunk.filter(pl.col('mapping_quality')>=1).write_parquet(path/'q1'/f'{index}.parquet', row_group_size=3)
         if local:
             meta = path/'_metadata'
             text = meta.read_text()
@@ -57,7 +60,7 @@ class Streaming(unittest.TestCase):
                  patch.object(r, 'iter_batches', side_effect=AssertionError('row fallback')):
                 columns = list(r.iter_columns())
         self.assertEqual([column_rows(b) for b in columns], expected)
-        # Independent existing Reader decoder, always q0 (fixture q1 is not rewritten).
+        # Independent existing Reader decoder: q0 is the correctness oracle.
         with p.Reader(path, 0) as source:
             raw = [row for batch in source.iter_batches() for row in batch]
             if source.kind == 'pairs':
@@ -213,7 +216,7 @@ else: raise AssertionError('missing capability error')
             with self.assertRaisesRegex(RuntimeError,'failed'): next(method())
         r.close()
         self.assertEqual(list(first.read_idx),[1])
-        path=self.fixture('bad-ids',(2,1),(0,0),())
+        path=self.fixture('bad-ids',(2,1),(60,60),())
         with p.StreamingReader(path,255,batch_rows=1) as r:
             with self.assertRaisesRegex(RuntimeError,'contiguous and increasing'): next(r.iter_columns())
         # Wrong output arguments poison live streams and clear writable outputs.
@@ -241,6 +244,72 @@ else: raise AssertionError('missing capability error')
                 str(project/'tests'/('streaming.'+ext)), '-L',str(library),'-lpqsio',
                 '-Wl,-rpath,'+str(library),'-o',str(exe)],check=True,capture_output=True,text=True)
             subprocess.run([str(exe),str(path)],check=True)
+
+    def test_q1_auto_selection_thresholds_and_partition_isolation(self):
+        for kind in ('pairs','concat'):
+            if kind=='pairs':
+                path=self.root/'switch-pairs'
+                rows=[p.Pair('dup',0,2**32+1,0,2,'+','-',q) for q in (0,1,20,30,60,60)]
+                with p.PairsWriter(path,{'chr1':2**33},chunk_size=2) as w:w.write_batch(rows)
+            else:
+                path=self.fixture(name='switch-concat',ids=(1,1,2,2,2,4),qualities=(0,1,20,30,60,60),cuts=(2,4))
+            # Compare every field against a q0 oracle before corrupting q0.
+            with p.Reader(path,0) as r:raw=[x for b in r.iter_batches() for x in b]
+            for threshold in (0,1,30,61,255):
+                for boundary in (('rows',) if kind=='pairs' else ('rows','complete_reads')):
+                    for n in (1,3,20):self.batches(path,n,boundary,mapq=threshold)
+            q0=next((path/'q0').glob('*.parquet'));q0_bytes=q0.read_bytes()
+            q0.write_bytes(b'corrupt unselected q0')
+            for threshold in (1,30,61,255):
+                expected=[row for row in raw if (row.mapq if kind=='pairs' else row.mapping_quality)>=threshold]
+                for method in ('iter_batches','iter_columns'):
+                    for boundary in (('rows',) if kind=='pairs' else ('rows','complete_reads')):
+                        with p.StreamingReader(path,threshold,batch_rows=1,boundary=boundary) as r:
+                            batches=list(getattr(r,method)())
+                        actual=[row for b in batches for row in (column_rows(b) if method=='iter_columns' else b)]
+                        self.assertEqual(actual,expected)
+            q0.write_bytes(q0_bytes)
+            # A selected q1 failure is terminal, never a restart from q0.
+            q1=next((path/'q1').glob('*.parquet'));q1_bytes=q1.read_bytes()
+            q1.write_bytes(b'corrupt selected q1')
+            for method in ('iter_batches','iter_columns'):
+                with p.StreamingReader(path,30) as r:
+                    with self.assertRaises(RuntimeError):list(getattr(r,method)())
+                    with self.assertRaisesRegex(RuntimeError,'failed'):next(r.iter_columns())
+            with p.StreamingReader(path,0) as r:self.assertEqual([x for b in r.iter_batches() for x in b],raw)
+            q1.write_bytes(q1_bytes)
+            # Missing q1 is a source error, not an empty successful query.
+            for f in (path/'q1').glob('*.parquet'):f.unlink()
+            (path/'q1').rmdir()
+            with self.assertRaises(RuntimeError):p.StreamingReader(path,30)
+            with p.StreamingReader(path,0) as r:self.assertEqual([x for b in r.iter_batches() for x in b],raw)
+
+    def test_q0_required_modes_do_not_read_q1(self):
+        for local in (False,True):
+            path=self.fixture(name='q0-required-'+str(local),local=local)
+            for f in (path/'q1').glob('*.parquet'):f.unlink()
+            (path/'q1').rmdir()
+            modes=(None,'matching_alignments','complete_reads') if local else ('complete_reads',)
+            for mode in modes:
+                for boundary in ('rows','complete_reads'):
+                    for n in (1,3,20):self.batches(path,n,boundary,mode,mapq=30)
+
+    def test_q1_early_close_and_late_source_failure(self):
+        path=self.fixture(name='q1-late',ids=(1,1,2,2,3,3),qualities=(60,60,60,60,60,60),cuts=(2,4))
+        with p.StreamingReader(path,30,batch_rows=1) as r:
+            first=next(r.iter_columns())
+            (path/'q1'/'1.parquet').write_bytes(b'corrupt later q1 shard')
+            with self.assertRaises(RuntimeError):list(r.iter_columns())
+            with self.assertRaisesRegex(RuntimeError,'failed'):next(r.iter_batches())
+        self.assertEqual(list(first.read_idx),[1])
+        r=p.StreamingReader(path,30,batch_rows=1)
+        it=r.iter_columns();next(it);r.close();r.close()
+        with self.assertRaisesRegex(RuntimeError,'closed'):next(it)
+        if Path('/proc/self/fd').exists():
+            for fd in Path('/proc/self/fd').iterdir():
+                try:target=os.readlink(fd)
+                except FileNotFoundError:continue
+                self.assertNotIn(str(path.resolve()),target)
 
     def test_c_invalid_and_callback_failure(self):
         path=self.fixture(); lib=p._library(); handle=C.c_void_p()

@@ -29,7 +29,22 @@ batches greedily pack whole reads up to the target. A read exceeding the target
 occupies its own oversized batch. A shard boundary never ends a global-ID read.
 No empty output batches are delivered: Rust None / C status 0 / Python iterator
 termination means EOF. MAPQ=0 retains every record/read. Entirely unmatched reads
-are skipped. Both new filtering modes read q0, never reconstruct a read from q1.
+are skipped.
+
+Source selection is shared by the Rust, C, C++ and Python streaming APIs:
+
+| Condition | Source |
+|---|---|
+| Positive MAPQ, pairs or global-ID concat matching_alignments | q1 |
+| MAPQ=0 | q0 |
+| concat complete_reads filtering | q0 |
+| Legacy shard-local concat IDs | q0, preserving deterministic global IDs |
+
+Boundary selection only controls batching, not source selection. q1 must be the
+valid, ordered MAPQ-positive view of q0; the requested threshold is still applied
+exactly. A missing or unreadable selected partition raises a source error rather
+than silently switching partitions. Complete reads always retain all qualifying
+read alignments from q0. No region index is used by StreamingReader.
 
 ## Examples
 

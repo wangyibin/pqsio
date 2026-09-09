@@ -133,6 +133,9 @@ int32_t pqsio_column_batch_destroy(pqsio_column_batch *);
 /* NEW: row-group streaming API; existing reader ABI is unchanged.
  * batch_rows: 1..UINT32_MAX. boundary: 0 rows, 1 complete_reads.
  * filter: 0 default, 1 matching_alignments, 2 complete_reads.
+ * Positive MAPQ selects q1 for pairs/global-ID matching reads. MAPQ=0,
+ * complete_reads filtering, and shard-local concat select q0. Boundary alone
+ * does not affect source selection. Missing/unreadable source is an error.
  * Pairs requires boundary=0 and filter=0. Defaults: 65536, 0, 0.
  * next: 1 nonempty batch, 0 EOF, -1 terminal error (close/reopen).
  * Callbacks borrow arrays/strings only until return; return 0 on success.
@@ -169,6 +172,21 @@ int32_t pqsio_validate_json(const char *, uint32_t, size_t, pqsio_json_callback,
  * Inputs must stay unchanged throughout the call. See docs/merge.md. */
 int32_t pqsio_merge_json(const char *const *, size_t, const char *, size_t,
                          size_t, uint32_t, pqsio_json_callback, void *);
+/* Optional region query extension. No change to ABI v1 stream handles.
+ * Positive-MAPQ matching queries use q1; all index modes target the selected quality.
+ * Complete reads and shard-local IDs always use q0. JSON stats source_quality
+ * identifies the partition counted by the row/group statistics.
+ * Coordinates: 0-based half-open. index: 0 auto, 1 off, 2 require;
+ * pairs_mode: 0 either, 1 both; boundary/filter follow stream_open.
+ * Query handles use stream_next[_columns], kind, contigs and destroy.
+ * stats are partial until complete=true. No source file is modified. */
+typedef struct { const char *contig; uint64_t start; uint64_t end; } pqsio_region;
+int32_t pqsio_build_index(const char *, uint32_t rebuild);
+/* quality: 0 q0, 1 q1; additive symbol, old build_index still selects q0. */
+int32_t pqsio_build_index_quality(const char *, uint32_t quality, uint32_t rebuild);
+int32_t pqsio_query_open(const char *, const pqsio_region *, size_t,
+    uint8_t, uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, pqsio_stream **);
+int32_t pqsio_query_stats_json(const pqsio_stream *, pqsio_json_callback, void *);
 #ifdef __cplusplus
 }
 #endif

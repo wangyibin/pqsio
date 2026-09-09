@@ -32,9 +32,10 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
-`test-parallel`, `test-streaming`, `test-inspection` and `test-merge`. Python/native
-tests build the shared library first. `pixi run bench-columns --rows 80000 --repetitions 5` and `pixi run
-bench-streaming` explicitly run synthetic benchmarks; normal builds/tests do not
+`test-parallel`, `test-streaming`, `test-query`, `test-inspection` and `test-merge`.
+Python/native tests build the shared library first. `pixi run bench-columns --rows
+80000 --repetitions 5`, `pixi run bench-streaming` and `pixi run bench-query`
+explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved
 for final release artifacts under `target/release/`; development and debug work
 use `dev-release`. To use release libraries in Python, explicitly override
@@ -103,6 +104,19 @@ with the same options and cursor, without intermediate row conversion. Existing
 `Reader` methods are unchanged.
 See [new interfaces, semantics and memory limits](docs/streaming.md) and
 [validation and measurements](docs/streaming-results.md).
+
+## Optional region queries and row-group summaries
+
+`QueryReader(path, regions=[("chr1", 100_000, 200_000)], index="auto")` queries
+through the shared streaming column pipeline. Positive-MAPQ matching queries
+select q1 independently of index mode; `auto/off/require` target that partition.
+`stats["source_quality"]` identifies the source. `build_index(path)` builds q0;
+`build_index(path, quality="q1")` builds an independent q1 index. Both add an
+optional per-contig/per-endpoint row-group summary sidecar; `index="off"` is the
+sequential path for the selected partition. Concat complete-read queries and legacy
+shard-local IDs always use sequential scans. No dependencies or source PQS
+files change. See [API, schema, fallback and memory contracts](docs/query.md)
+and [synthetic measurements](docs/query-results.md).
 
 ## Columnar batch I/O (0.0.4)
 
@@ -288,3 +302,8 @@ production dependency. See that directory for reproduction commands and results.
 
 See [benchmarks/ACCEPTANCE.md](benchmarks/ACCEPTANCE.md) for measured performance,
 compatibility checks, limits, and reproducible commands against Git `v0.0.1`.
+
+Public `StreamingReader` automatically reads q1 for positive `min_mapq` on pairs
+and global-ID concat matching queries. MAPQ zero, complete-read filtering and
+legacy shard-local concat use q0. Batch boundaries do not change this selection;
+see [streaming semantics](docs/streaming.md).

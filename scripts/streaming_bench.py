@@ -56,6 +56,7 @@ def main():
                     'filter_reason': ['pass']*n,
                 }).select([pl.col(c).cast(t) for c,t in seed.schema.items()])
                 frame.write_parquet(shard, row_group_size=4096)
+                frame.write_parquet(path/'q1'/shard.name, row_group_size=4096)
                 del frame, seed
                 for boundary, filtering in [('rows','matching_alignments'),('complete_reads','complete_reads')]:
                     for repetition in range(2):

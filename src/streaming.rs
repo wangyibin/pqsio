@@ -39,6 +39,8 @@ pub(crate) struct ReadOrigin {
 pub struct StreamingReader {
     pub(crate) source: Reader,
     options: ReadOptions,
+    pub(crate) query: Option<crate::query::QueryState>,
+    shard_ordinal: usize,
     capture_origin: bool,
     raw_ids: Vec<u64>,
     current_shard: PathBuf,
@@ -58,11 +60,21 @@ pub struct StreamingReader {
 }
 impl StreamingReader {
     pub fn open(path: impl AsRef<Path>, min_mapq: u8, options: ReadOptions) -> Result<Self> {
+        // Complete reads need low-MAPQ alignments from q0. Otherwise reuse
+        // Reader's q1 selection, including its shard-local q0 mapping fallback.
+        let source_mapq = if options.concat_filter == Some(ConcatFilter::CompleteReads) {
+            0
+        } else {
+            min_mapq
+        };
+        Self::from_source(Reader::open(path, source_mapq)?, min_mapq, options)
+    }
+    // QueryReader can supply its already-selected partition.
+    pub(crate) fn from_source(source: Reader, min_mapq: u8, options: ReadOptions) -> Result<Self> {
         ensure!(
             options.batch_rows > 0 && options.batch_rows <= u32::MAX as usize,
             "batch_rows must be in 1..=4294967295"
         );
-        let source = Reader::open(path, 0)?; // Always q0, mapping precedes filtering.
         ensure!(
             source.kind == Kind::Concat
                 || (options.boundary == ReadBoundary::Rows && options.concat_filter.is_none()),
@@ -71,6 +83,8 @@ impl StreamingReader {
         Ok(Self {
             source,
             options,
+            query: None,
+            shard_ordinal: 0,
             capture_origin: false,
             raw_ids: vec![],
             current_shard: PathBuf::new(),
@@ -100,6 +114,10 @@ impl StreamingReader {
     }
     pub(crate) fn poison(&mut self) {
         self.failed = true;
+        if let Some(query) = &mut self.query {
+            query.cursor = None;
+            query.stats.complete = false;
+        }
         self.decoder = None;
         self.pairs = PairColumns::default();
         self.alignments = ConcatColumns::default();
@@ -122,6 +140,7 @@ impl StreamingReader {
                     return Ok(false);
                 };
                 self.current_shard = path.clone();
+                self.shard_ordinal += 1;
                 let file = File::open(path)?;
                 self.decoder = Some((file.try_clone()?, ParquetReader::new(file), 0));
                 if self.source.shard_scoped {
@@ -138,6 +157,23 @@ impl StreamingReader {
             // group. No prefix slicing/redecoding, and no whole-shard DataFrame.
             let group = metadata.row_groups[*index].clone();
             *index += 1;
+            if let Some(query) = &mut self.query {
+                let candidate = if let Some(cursor) = &mut query.cursor {
+                    cursor.candidate(
+                        self.shard_ordinal - 1,
+                        *index - 1,
+                        group.num_rows(),
+                        &query.predicate,
+                    )?
+                } else {
+                    !query.predicate.is_empty()
+                };
+                if !candidate {
+                    query.stats.skipped_row_groups += 1;
+                    continue;
+                }
+                query.stats.candidate_row_groups += 1;
+            }
             if group.num_rows() == 0 {
                 continue;
             }
@@ -147,7 +183,12 @@ impl StreamingReader {
             let mut decoder =
                 ParquetReader::new(file.try_clone()?).read_parallel(ParallelStrategy::None);
             decoder.set_metadata(Arc::new(one));
-            match self.source.frame_columns(decoder.finish()?)? {
+            let frame = decoder.finish()?;
+            if let Some(query) = &mut self.query {
+                query.stats.decoded_row_groups += 1;
+                query.stats.decoded_rows += frame.height() as u64;
+            }
+            match self.source.frame_columns(frame)? {
                 ColumnBatch::Pairs(columns) => self.pairs = columns,
                 ColumnBatch::Concat(mut columns) => {
                     if self.capture_origin {
@@ -210,15 +251,30 @@ impl StreamingReader {
                 self.position = end;
             }
             if self.options.concat_filter == Some(ConcatFilter::CompleteReads) {
-                if !out.mapping_quality.iter().any(|&q| q >= self.min_mapq) {
+                if !out.mapping_quality.iter().enumerate().any(|(i, &q)| {
+                    q >= self.min_mapq
+                        && self
+                            .query
+                            .as_ref()
+                            .is_none_or(|s| s.predicate.alignment(&out, i))
+                }) {
                     out = ConcatColumns::default();
                 }
             } else {
                 let mut filtered = ConcatColumns::default();
                 let mut start = 0;
                 while start < out.read_idx.len() {
-                    let end =
-                        matching_run(&out.mapping_quality, &mut start, usize::MAX, self.min_mapq);
+                    let end = matching_run(
+                        &out.mapping_quality,
+                        &mut start,
+                        usize::MAX,
+                        self.min_mapq,
+                        |i| {
+                            self.query
+                                .as_ref()
+                                .is_none_or(|s| s.predicate.alignment(&out, i))
+                        },
+                    );
                     if start < end {
                         filtered.append(out.as_view(), start, end);
                     }
@@ -246,6 +302,16 @@ impl StreamingReader {
     pub fn next_columns(&mut self) -> Result<Option<ColumnBatch>> {
         ensure!(!self.failed, "streaming reader failed; close and reopen it");
         let result = self.next_inner();
+        if let (Ok(batch), Some(query)) = (&result, &mut self.query) {
+            if let Some(batch) = batch {
+                query.stats.returned_rows += match batch {
+                    ColumnBatch::Pairs(c) => c.pos1.len(),
+                    ColumnBatch::Concat(c) => c.start.len(),
+                } as u64;
+            } else {
+                query.stats.complete = true;
+            }
+        }
         if result.is_err() {
             self.poison();
         }
@@ -265,6 +331,11 @@ impl StreamingReader {
                     &mut self.position,
                     limit - out.pos1.len(),
                     self.min_mapq,
+                    |i| {
+                        self.query
+                            .as_ref()
+                            .is_none_or(|s| s.predicate.pair(&self.pairs, i))
+                    },
                 );
                 if self.position < end {
                     out.append(self.pairs.as_view(), self.position, end);
@@ -283,6 +354,11 @@ impl StreamingReader {
                     &mut self.position,
                     limit - out.read_idx.len(),
                     self.min_mapq,
+                    |i| {
+                        self.query
+                            .as_ref()
+                            .is_none_or(|s| s.predicate.alignment(&self.alignments, i))
+                    },
                 );
                 if self.position < end {
                     out.append(self.alignments.as_view(), self.position, end);
@@ -329,12 +405,18 @@ impl StreamingReader {
 }
 
 // Skip unmatched values, then take one contiguous matching span. No row objects.
-fn matching_run(quality: &[u8], start: &mut usize, limit: usize, min_mapq: u8) -> usize {
-    while *start < quality.len() && quality[*start] < min_mapq {
+fn matching_run(
+    quality: &[u8],
+    start: &mut usize,
+    limit: usize,
+    min_mapq: u8,
+    matches: impl Fn(usize) -> bool,
+) -> usize {
+    while *start < quality.len() && (quality[*start] < min_mapq || !matches(*start)) {
         *start += 1;
     }
     let mut end = *start;
-    while end < quality.len() && end - *start < limit && quality[end] >= min_mapq {
+    while end < quality.len() && end - *start < limit && quality[end] >= min_mapq && matches(end) {
         end += 1;
     }
     end

@@ -1,3 +1,33 @@
+# Public StreamingReader q1 selection validation
+
+Validated on 2026-09-09 with the project Pixi environment and dev-release profile.
+Public Rust streaming selection now uses the existing Reader partition policy;
+C, C++ and Python share that implementation without an ABI signature change.
+
+Commands and results (run from pqsio):
+
+- `pixi run build`: passed (locked dev-release build).
+- `pixi run cargo test --locked --profile dev-release -j 4`: 29 passed.
+- `pixi run python -m unittest discover -s tests -p test_streaming.py -v -f`: 14 passed, including compiled C/C++ checks.
+- `pixi run python -m unittest discover -s tests -p test_query.py -v -f`: 23 passed.
+- `pixi run python -m unittest discover -s tests -p test_merge.py -v -f`: 6 passed.
+- `pixi run cargo clippy --locked --profile dev-release --all-targets -j 4 -- -D warnings`: passed.
+- `git diff --check`: passed.
+
+New tests compare every returned field and ordering against a q0 oracle at
+MAPQ 0, 1, 30, 61 and 255, with multiple batch sizes and both concat boundaries.
+They cover pairs, global concat, shard-local ID fallback, complete-read q0
+selection, missing/corrupt partitions, late errors, early close and descriptors.
+Fixtures use different physical q0/q1 row-group layouts while preserving rows.
+The benchmark fixture now writes both quality views consistently.
+
+No new performance measurements were run for this streaming change. The results
+below are historical q0 streaming measurements, not measurements of q1 selection.
+q1 completeness remains an input-format assumption; no new dependency or cache
+was introduced, and the existing oversized row-group/read memory limits remain.
+
+---
+
 # Streaming validation and measurements — 0.0.6
 
 Measured on 2026-09-09, Linux x86-64, project Pixi environment, Rust 1.91.1,

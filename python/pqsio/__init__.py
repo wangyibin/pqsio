@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 
 @dataclass
 class Pair:
@@ -449,7 +449,10 @@ class StreamingReader(Reader):
 
     batch_rows controls output rows, not bytes. boundary and filter_mode are
     independent. None means matching_alignments for concat; pairs requires None.
-    CompleteReads filtering returns q0 records of reads with any matching row.
+    Positive-MAPQ pairs/global-ID matching queries read q1. MAPQ=0, shard-local
+    concat and complete_reads filtering read q0. The boundary option changes
+    batching, not source selection. CompleteReads returns all q0 alignments of
+    reads with any matching alignment; q1 must be a valid ordered view of q0.
     """
     _prefix = "stream"
 
@@ -480,3 +483,5 @@ class StreamingReader(Reader):
 from .inspection import Metadata, Inspection, ValidationReport, inspect, validate
 
 from .merge import MergeResult, merge
+
+from .query import QueryReader, build_index

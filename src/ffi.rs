@@ -1002,3 +1002,136 @@ pub unsafe extern "C" fn pqsio_merge_json(
         Ok(0)
     })
 }
+
+/// Build the optional q0 row-group index; rebuild is explicitly 0 or 1.
+/// # Safety
+/// path must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_build_index(path: *const c_char, rebuild: u32) -> i32 {
+    call(|| {
+        ensure!(rebuild <= 1, "rebuild must be 0 or 1");
+        build_index(text(path)?, rebuild == 1)?;
+        Ok(0)
+    })
+}
+/// Build an index for quality 0 (q0) or 1 (q1). Existing entry point is unchanged.
+/// # Safety
+/// path must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_build_index_quality(
+    path: *const c_char,
+    quality: u32,
+    rebuild: u32,
+) -> i32 {
+    call(|| {
+        ensure!(rebuild <= 1, "rebuild must be 0 or 1");
+        let quality = match quality {
+            0 => IndexQuality::Q0,
+            1 => IndexQuality::Q1,
+            _ => bail!("quality must be 0 or 1"),
+        };
+        build_index_for_quality(text(path)?, quality, rebuild == 1)?;
+        Ok(0)
+    })
+}
+#[repr(C)]
+pub struct CRegion {
+    pub contig: *const c_char,
+    pub start: u64,
+    pub end: u64,
+}
+/// Additive query constructor returning a normal stream handle.
+/// index: 0 auto, 1 off, 2 require; pairs: 0 either, 1 both.
+/// # Safety
+/// Input strings/region array must be live; out must be writable. The returned
+/// handle obeys all pqsio_stream_* contracts and must be destroyed once.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_query_open(
+    path: *const c_char,
+    regions: *const CRegion,
+    count: usize,
+    min_mapq: u8,
+    index: u32,
+    pairs: u32,
+    batch_rows: u64,
+    boundary: u32,
+    filter: u32,
+    out: *mut *mut StreamingReader,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null query output");
+        *out = ptr::null_mut();
+        ensure!(count == 0 || !regions.is_null(), "null query regions");
+        let input = if count == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(regions, count)
+        };
+        let regions = input
+            .iter()
+            .map(|r| {
+                Ok(Region {
+                    contig: text(r.contig)?,
+                    start: r.start,
+                    end: r.end,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let options = QueryOptions {
+            regions,
+            min_mapq,
+            index: match index {
+                0 => IndexMode::Auto,
+                1 => IndexMode::Off,
+                2 => IndexMode::Require,
+                _ => bail!("invalid index mode"),
+            },
+            pairs_mode: match pairs {
+                0 => PairsMode::Either,
+                1 => PairsMode::Both,
+                _ => bail!("invalid pairs mode"),
+            },
+            read: ReadOptions {
+                batch_rows: usize::try_from(batch_rows)?,
+                boundary: match boundary {
+                    0 => ReadBoundary::Rows,
+                    1 => ReadBoundary::CompleteReads,
+                    _ => bail!("invalid read boundary"),
+                },
+                concat_filter: match filter {
+                    0 => None,
+                    1 => Some(ConcatFilter::MatchingAlignments),
+                    2 => Some(ConcatFilter::CompleteReads),
+                    _ => bail!("invalid concat filter"),
+                },
+            },
+        };
+        *out = Box::into_raw(Box::new(QueryReader::open_stream(text(path)?, options)?));
+        Ok(0)
+    })
+}
+/// # Safety
+/// Live stream returned by query_open; callback follows inspection JSON rules.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_query_stats_json(
+    r: *const StreamingReader,
+    callback: Option<JsonCallback>,
+    user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let stats = &r
+            .as_ref()
+            .context("null query reader")?
+            .query
+            .as_ref()
+            .context("not a query reader")?
+            .stats;
+        let cb = callback.context("null JSON callback")?;
+        let json = stats.to_json();
+        ensure!(
+            cb(json.as_ptr(), json.len(), user) == 0,
+            "JSON callback failed"
+        );
+        Ok(0)
+    })
+}

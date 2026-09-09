@@ -1,0 +1,533 @@
+{
+  "conditions": "warm OS page cache requested by parent reads; fresh worker and zero index cache each trial; no cold-cache claim",
+  "source_quality": "q1",
+  "rows": 32768,
+  "row_group_target": 1024,
+  "repetitions": 5,
+  "results": [
+    {
+      "distribution": "clustered",
+      "fixture_seconds": 0.2902895202860236,
+      "index_build_seconds": 0.25778093934059143,
+      "equal": true,
+      "measurements": {
+        "off": {
+          "median_seconds": 0.00866881012916565,
+          "median_peak_rss_mib": 31.45703125,
+          "max_peak_rss_mib": 31.59765625,
+          "stats": {
+            "candidate_row_groups": 24,
+            "complete": true,
+            "decoded_row_groups": 24,
+            "decoded_rows": 24576,
+            "fallback_reason": "index disabled",
+            "index_used": false,
+            "manifest_bytes": 0,
+            "returned_rows": 768,
+            "skipped_row_groups": 0,
+            "source_inventory_bytes": 305,
+            "source_quality": "q1",
+            "summary_cache_bytes": 0,
+            "total_row_groups": 24
+          },
+          "trials": [
+            {
+              "seconds": 0.00850680936127901,
+              "peak_rss_mib": 31.59765625,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 768,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008753910660743713,
+              "peak_rss_mib": 31.4921875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 768,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.00879478920251131,
+              "peak_rss_mib": 31.45703125,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 768,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.00866881012916565,
+              "peak_rss_mib": 31.44921875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 768,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008598330430686474,
+              "peak_rss_mib": 31.44921875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 768,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            }
+          ]
+        },
+        "require": {
+          "median_seconds": 0.003488980233669281,
+          "median_peak_rss_mib": 31.50390625,
+          "max_peak_rss_mib": 31.51953125,
+          "stats": {
+            "candidate_row_groups": 2,
+            "complete": true,
+            "decoded_row_groups": 2,
+            "decoded_rows": 2048,
+            "fallback_reason": null,
+            "index_used": true,
+            "manifest_bytes": 575,
+            "returned_rows": 768,
+            "skipped_row_groups": 22,
+            "source_inventory_bytes": 305,
+            "source_quality": "q1",
+            "summary_cache_bytes": 0,
+            "total_row_groups": 24
+          },
+          "trials": [
+            {
+              "seconds": 0.0034838393330574036,
+              "peak_rss_mib": 31.48046875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 2,
+                "complete": true,
+                "decoded_row_groups": 2,
+                "decoded_rows": 2048,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 575,
+                "returned_rows": 768,
+                "skipped_row_groups": 22,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.0035062897950410843,
+              "peak_rss_mib": 31.37890625,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 2,
+                "complete": true,
+                "decoded_row_groups": 2,
+                "decoded_rows": 2048,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 575,
+                "returned_rows": 768,
+                "skipped_row_groups": 22,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.0035181799903512,
+              "peak_rss_mib": 31.51953125,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 2,
+                "complete": true,
+                "decoded_row_groups": 2,
+                "decoded_rows": 2048,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 575,
+                "returned_rows": 768,
+                "skipped_row_groups": 22,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.003488980233669281,
+              "peak_rss_mib": 31.50390625,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 2,
+                "complete": true,
+                "decoded_row_groups": 2,
+                "decoded_rows": 2048,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 575,
+                "returned_rows": 768,
+                "skipped_row_groups": 22,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.003212250769138336,
+              "peak_rss_mib": 31.51171875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "650b0bc3204880ac1031321f4e98efe3582a099d1c5ae26dba91a63ce180e882",
+              "stats": {
+                "candidate_row_groups": 2,
+                "complete": true,
+                "decoded_row_groups": 2,
+                "decoded_rows": 2048,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 575,
+                "returned_rows": 768,
+                "skipped_row_groups": 22,
+                "source_inventory_bytes": 305,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "distribution": "mixed",
+      "fixture_seconds": 0.25101527012884617,
+      "index_build_seconds": 0.26355915050953627,
+      "equal": true,
+      "measurements": {
+        "off": {
+          "median_seconds": 0.008482810109853745,
+          "median_peak_rss_mib": 31.4375,
+          "max_peak_rss_mib": 31.58203125,
+          "stats": {
+            "candidate_row_groups": 24,
+            "complete": true,
+            "decoded_row_groups": 24,
+            "decoded_rows": 24576,
+            "fallback_reason": "index disabled",
+            "index_used": false,
+            "manifest_bytes": 0,
+            "returned_rows": 757,
+            "skipped_row_groups": 0,
+            "source_inventory_bytes": 306,
+            "source_quality": "q1",
+            "summary_cache_bytes": 0,
+            "total_row_groups": 24
+          },
+          "trials": [
+            {
+              "seconds": 0.008436430245637894,
+              "peak_rss_mib": 31.3203125,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008482810109853745,
+              "peak_rss_mib": 31.296875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.00879236962646246,
+              "peak_rss_mib": 31.4375,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.00872517004609108,
+              "peak_rss_mib": 31.4375,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.00843534991145134,
+              "peak_rss_mib": 31.58203125,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": "index disabled",
+                "index_used": false,
+                "manifest_bytes": 0,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            }
+          ]
+        },
+        "require": {
+          "median_seconds": 0.008736909367144108,
+          "median_peak_rss_mib": 31.41796875,
+          "max_peak_rss_mib": 31.5,
+          "stats": {
+            "candidate_row_groups": 24,
+            "complete": true,
+            "decoded_row_groups": 24,
+            "decoded_rows": 24576,
+            "fallback_reason": null,
+            "index_used": true,
+            "manifest_bytes": 576,
+            "returned_rows": 757,
+            "skipped_row_groups": 0,
+            "source_inventory_bytes": 306,
+            "source_quality": "q1",
+            "summary_cache_bytes": 0,
+            "total_row_groups": 24
+          },
+          "trials": [
+            {
+              "seconds": 0.008902760222554207,
+              "peak_rss_mib": 31.41796875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 576,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008671039715409279,
+              "peak_rss_mib": 31.36328125,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 576,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008736909367144108,
+              "peak_rss_mib": 31.5,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 576,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008795159868896008,
+              "peak_rss_mib": 31.37890625,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 576,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            },
+            {
+              "seconds": 0.008573219180107117,
+              "peak_rss_mib": 31.421875,
+              "peak_rss_source": "Linux /proc/self/status VmHWM",
+              "digest": "24c05341891151ac995cbdf391c48bb6da8b273e3c1e49b19cb5c17151201e8c",
+              "stats": {
+                "candidate_row_groups": 24,
+                "complete": true,
+                "decoded_row_groups": 24,
+                "decoded_rows": 24576,
+                "fallback_reason": null,
+                "index_used": true,
+                "manifest_bytes": 576,
+                "returned_rows": 757,
+                "skipped_row_groups": 0,
+                "source_inventory_bytes": 306,
+                "source_quality": "q1",
+                "summary_cache_bytes": 0,
+                "total_row_groups": 24
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

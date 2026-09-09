@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.10 — 2026-09-09
+
+- Add optional q0/q1 row-group summary indexes and exact region queries for
+  Rust, Python and the C ABI, with read-only source access and index lifecycle
+  isolation by quality partition.
+- Support automatic q1 selection for positive-MAPQ pairs/global concat matching
+  reads, while complete-read and shard-local concat queries retain q0 semantics.
+- Provide `auto`, sequential `off` and indexed `require` modes with integrity
+  checks, explicit fallback diagnostics, cursor statistics and documented
+  synthetic measurements.
+
 ## 0.0.9 — 2026-09-09
 
 - Add caller-ordered, q0-only streaming merge APIs for Rust, Python and the C

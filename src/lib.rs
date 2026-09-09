@@ -16,6 +16,8 @@ pub use inspection::{inspect, validate, Inspection, ValidationLevel, ValidationR
 pub mod columns;
 pub mod ffi;
 pub use columns::{ColumnBatch, ConcatColumns, ConcatColumnsView, PairColumns, PairColumnsView};
+pub mod query;
+pub use query::{build_index, build_index_for_quality, IndexQuality, IndexMode, PairsMode, QueryOptions, QueryReader, QueryStats, Region};
 pub mod streaming;
 pub use streaming::{ConcatFilter, ReadBoundary, ReadOptions, StreamingReader};
 pub mod parallel;
@@ -501,7 +503,12 @@ pub struct Reader {
 }
 impl Reader {
     pub fn open(path: impl AsRef<Path>, min_mapq: u8) -> Result<Self> {
-        let path = path.as_ref();
+        Self::open_inner(path.as_ref(), min_mapq, None)
+    }
+    pub(crate) fn open_partition(path: &Path, q1: bool) -> Result<Self> {
+        Self::open_inner(path, 0, Some(if q1 { "q1" } else { "q0" }))
+    }
+    fn open_inner(path: &Path, min_mapq: u8, partition: Option<&str>) -> Result<Self> {
         let metadata = Metadata::open(path)?;
         let kind = metadata.supported_kind()?;
         let shard_scoped = kind == Kind::Concat && metadata.shard_scoped();
@@ -518,11 +525,11 @@ impl Reader {
                 length: fields[1].parse()?,
             });
         }
-        let mut files = fs::read_dir(path.join(if min_mapq == 0 || shard_scoped {
+        let mut files = fs::read_dir(path.join(partition.unwrap_or(if min_mapq == 0 || shard_scoped {
             "q0"
         } else {
             "q1"
-        }))?
+        })))?
         .map(|e| e.map(|e| e.path()))
         .collect::<std::io::Result<Vec<_>>>()?;
         files.retain(|p| p.extension().is_some_and(|s| s == "parquet"));
