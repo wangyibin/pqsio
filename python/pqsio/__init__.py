@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 @dataclass
 class Pair:
@@ -72,6 +72,14 @@ def _library():
         "reader_contigs": ([C.c_void_p, _ContigsCB, C.c_void_p], C.c_int32),
         "reader_next": ([C.c_void_p, _PairsCB, _ConcatCB, C.c_void_p], C.c_int32),
     }
+    if hasattr(lib, "pqsio_stream_open"):
+        signatures.update({
+            "stream_open": ([C.c_char_p, C.c_uint8, C.c_uint64, C.c_uint32, C.c_uint32, C.POINTER(C.c_void_p)], C.c_int32),
+            "stream_next": ([C.c_void_p, _PairsCB, _ConcatCB, C.c_void_p], C.c_int32),
+            "stream_kind": ([C.c_void_p], C.c_int32),
+            "stream_contigs": ([C.c_void_p, _ContigsCB, C.c_void_p], C.c_int32),
+            "stream_destroy": ([C.c_void_p], C.c_int32),
+        })
     parallel_signatures = {
         "parallel_open": ([C.c_char_p, C.c_uint32, C.POINTER(_Contig), C.c_size_t,
                            C.c_size_t, C.c_size_t, C.c_size_t, C.c_size_t, C.POINTER(C.c_void_p)], C.c_int32),
@@ -339,12 +347,16 @@ class ParallelWriter(_Writer):
             self._handle = C.c_void_p()
 
 class Reader:
+    _prefix = "reader"
     def __init__(self, path, min_mapq=0):
         self._handle = C.c_void_p()
         self._lib = _library()
         _check(self._lib.pqsio_reader_open(_utf8(os.fspath(path)), _uint(min_mapq, 8), C.byref(self._handle)))
+        self._metadata()
+
+    def _metadata(self):
         try:
-            self.kind = ("pairs", "concat")[_check(self._lib.pqsio_reader_kind(self._handle))]
+            self.kind = ("pairs", "concat")[_check(getattr(self._lib, "pqsio_" + self._prefix + "_kind")(self._handle))]
             self.contigs = []
             errors = []
             @_ContigsCB
@@ -355,7 +367,7 @@ class Reader:
                 except BaseException as exc:
                     errors.append(exc)
                     return -1
-            code = self._lib.pqsio_reader_contigs(self._handle, callback, None)
+            code = getattr(self._lib, "pqsio_" + self._prefix + "_contigs")(self._handle, callback, None)
             if errors:
                 raise errors[0]
             _check(code)
@@ -381,7 +393,7 @@ class Reader:
                     return -1
             pairs = _PairsCB(lambda rows, n, _: receive(rows, n, Pair))
             concat = _ConcatCB(lambda rows, n, _: receive(rows, n, Alignment))
-            code = self._lib.pqsio_reader_next(self._handle, pairs, concat, None)
+            code = getattr(self._lib, "pqsio_" + self._prefix + "_next")(self._handle, pairs, concat, None)
             if errors:
                 raise errors[0]
             if _check(code) == 0:
@@ -405,7 +417,7 @@ class Reader:
             yield pending
     def close(self):
         if self._handle.value:
-            self._lib.pqsio_reader_destroy(self._handle)
+            getattr(self._lib, "pqsio_" + self._prefix + "_destroy")(self._handle)
             self._handle = C.c_void_p()
     def __enter__(self):
         return self
@@ -430,3 +442,36 @@ class ConcatReader(Reader):
             raise ValueError("Expected concat PQS")
 
 from .columns import PairColumns, ConcatColumns, pack_strings
+
+
+class StreamingReader(Reader):
+    """NEW: row-group streaming, independent of disk shard size.
+
+    batch_rows controls output rows, not bytes. boundary and filter_mode are
+    independent. None means matching_alignments for concat; pairs requires None.
+    CompleteReads filtering returns q0 records of reads with any matching row.
+    """
+    _prefix = "stream"
+
+    def __init__(self, path, min_mapq=0, *, batch_rows=65536,
+                 boundary="rows", filter_mode=None):
+        self._handle = C.c_void_p()
+        self._lib = _library()
+        if not hasattr(self._lib, "pqsio_stream_open"):
+            raise RuntimeError("Native pqsio library lacks streaming capability; rebuild/update it. Legacy Reader remains supported.")
+        batch_rows = _uint(batch_rows, 32)
+        if batch_rows == 0:
+            raise ValueError("batch_rows must be in 1..=4294967295")
+        boundaries = {"rows": 0, "complete_reads": 1}
+        filters = {None: 0, "matching_alignments": 1, "complete_reads": 2}
+        if boundary not in boundaries or filter_mode not in filters:
+            raise ValueError("Invalid streaming boundary or filter_mode")
+        _check(self._lib.pqsio_stream_open(_utf8(os.fspath(path)), _uint(min_mapq, 8),
+               batch_rows, boundaries[boundary], filters[filter_mode], C.byref(self._handle)))
+        self._metadata()
+
+    def iter_columns(self):
+        raise NotImplementedError("StreamingReader provides row batches only")
+
+    def iter_reads(self):
+        raise NotImplementedError("Use iter_batches with boundary='complete_reads'; batches may contain multiple reads")

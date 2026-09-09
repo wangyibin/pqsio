@@ -130,6 +130,19 @@ int32_t pqsio_write_concat_columns(pqsio_writer *, const pqsio_concat_columns *)
 int32_t pqsio_column_batch_concat(const pqsio_column_batch *, pqsio_concat_columns *);
 int32_t pqsio_reader_next_columns(pqsio_reader *, pqsio_column_batch **);
 int32_t pqsio_column_batch_destroy(pqsio_column_batch *);
+/* NEW: row-group streaming API; existing reader ABI is unchanged.
+ * batch_rows: 1..UINT32_MAX. boundary: 0 rows, 1 complete_reads.
+ * filter: 0 default, 1 matching_alignments, 2 complete_reads.
+ * Pairs requires boundary=0 and filter=0. Defaults: 65536, 0, 0.
+ * next: 1 nonempty batch, 0 EOF, -1 terminal error (close/reopen).
+ * Callbacks borrow arrays/strings only until return; return 0 on success.
+ * No concurrent access, reentry, throwing, or destruction during callbacks. */
+typedef struct pqsio_stream pqsio_stream;
+int32_t pqsio_stream_open(const char *, uint8_t, uint64_t, uint32_t, uint32_t, pqsio_stream **);
+int32_t pqsio_stream_next(pqsio_stream *, pqsio_pairs_callback, pqsio_concat_callback, void *);
+int32_t pqsio_stream_kind(const pqsio_stream *);
+int32_t pqsio_stream_contigs(const pqsio_stream *, pqsio_contigs_callback, void *);
+int32_t pqsio_stream_destroy(pqsio_stream *);
 #ifdef __cplusplus
 }
 #endif

@@ -10,6 +10,8 @@ use std::{
 pub mod columns;
 pub mod ffi;
 pub use columns::{ColumnBatch, ConcatColumns, ConcatColumnsView, PairColumns, PairColumnsView};
+pub mod streaming;
+pub use streaming::{ConcatFilter, ReadBoundary, ReadOptions, StreamingReader};
 pub mod parallel;
 pub use parallel::{ParallelOptions, ParallelWriter, Producer};
 
@@ -589,6 +591,9 @@ impl Reader {
         let Some(df) = self.next_frame()? else {
             return Ok(None);
         };
+        self.frame_batch(df).map(Some)
+    }
+    fn frame_batch(&self, df: DataFrame) -> Result<Batch> {
         let quality = if self.kind == Kind::Pairs {
             "mapq"
         } else {
@@ -635,7 +640,7 @@ impl Reader {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            Ok(Some(Batch::Pairs(rows)))
+            Ok(Batch::Pairs(rows))
         } else {
             let read_idx = number("read_idx")?;
             let read_length = number("read_length")?;
@@ -666,7 +671,7 @@ impl Reader {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            Ok(Some(Batch::Concat(rows)))
+            Ok(Batch::Concat(rows))
         }
     }
 }

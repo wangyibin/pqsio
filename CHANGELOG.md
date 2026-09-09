@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.6 — 2026-09-09
+
+- Add `StreamingReader` APIs for Rust, C, C++17 and Python. They form row
+  batches across Parquet row groups and shards independently of on-disk shard
+  boundaries.
+- Support bounded row batches or complete-read batches, together with explicit
+  concat matching-alignment and complete-read MAPQ filtering policies.
+- Keep ABI v1, disk formats and legacy reader behavior unchanged; provide
+  old-native-library capability detection, cross-language regression tests and
+  documented memory/throughput measurements.
+
 ## 0.0.5 — 2026-09-09
 
 - Add a standalone, lockfile-pinned Pixi development environment for the

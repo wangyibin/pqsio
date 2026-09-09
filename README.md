@@ -32,9 +32,10 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 The standalone test task does not require the sibling CPhasing checkout.
 
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
-and `test-parallel`. Python/native tests build the shared library first.
-`pixi run bench-columns --rows 80000 --repetitions 5` explicitly runs the synthetic
-benchmark; normal builds/tests do not run it. `pixi run build-release` is reserved
+`test-parallel` and `test-streaming`. Python/native tests build the shared library
+first. `pixi run bench-columns --rows 80000 --repetitions 5` and `pixi run
+bench-streaming` explicitly run synthetic benchmarks; normal builds/tests do not
+run them. `pixi run build-release` is reserved
 for final release artifacts under `target/release/`; development and debug work
 use `dev-release`. To use release libraries in Python, explicitly override
 `PQSIO_LIBRARY` after activation.
@@ -74,6 +75,15 @@ order. For bulk submission, use `write_reads(&rows, &offsets)`; offsets are
 `write_pairs_owned(Vec<Pair>)` and `write_reads_owned(Vec<Alignment>, &offsets)`
 transfer strings without cloning them. The same read must never be submitted twice. This contract avoids an
 unbounded set of previously seen read IDs and prevents accidental group splits.
+
+## Streaming row reads (0.0.6)
+
+New `StreamingReader` APIs in Rust, C, C++ and Python decouple output batches
+from disk shards. `batch_rows`, read-boundary policy and concat MAPQ filtering
+are independent options. Complete-read filtering returns qualifying reads from
+q0 including low-MAPQ alignments. Existing `Reader` methods are unchanged.
+See [new interfaces, semantics and memory limits](docs/streaming.md) and
+[validation and measurements](docs/streaming-results.md).
 
 ## Columnar batch I/O (0.0.4)
 

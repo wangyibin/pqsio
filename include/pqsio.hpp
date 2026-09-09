@@ -87,4 +87,25 @@ public:
         return check(pqsio_reader_next(handle_, pairs, concat, user)) == 1;
     }
 };
+// NEW: independent streaming reader, owns its handle until close/destruction.
+enum class ReadBoundary : uint32_t { Rows = 0, CompleteReads = 1 };
+enum class ConcatFilter : uint32_t { Default = 0, MatchingAlignments = 1, CompleteReads = 2 };
+class StreamingReader {
+    pqsio_stream *handle_ = nullptr;
+public:
+    StreamingReader(const std::string &path, uint8_t min_mapq = 0, uint64_t batch_rows = 65536,
+                    ReadBoundary boundary = ReadBoundary::Rows, ConcatFilter filter = ConcatFilter::Default) {
+        check(pqsio_stream_open(path.c_str(), min_mapq, batch_rows,
+              static_cast<uint32_t>(boundary), static_cast<uint32_t>(filter), &handle_));
+    }
+    StreamingReader(const StreamingReader &) = delete;
+    StreamingReader &operator=(const StreamingReader &) = delete;
+    ~StreamingReader() { pqsio_stream_destroy(handle_); }
+    void close() { check(pqsio_stream_destroy(handle_)); handle_ = nullptr; }
+    Kind kind() const { return static_cast<Kind>(check(pqsio_stream_kind(handle_))); }
+    void contigs(pqsio_contigs_callback cb, void *user = nullptr) { check(pqsio_stream_contigs(handle_, cb, user)); }
+    bool next(pqsio_pairs_callback pairs, pqsio_concat_callback concat, void *user = nullptr) {
+        return check(pqsio_stream_next(handle_, pairs, concat, user)) == 1;
+    }
+};
 } // namespace pqsio

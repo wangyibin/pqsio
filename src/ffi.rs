@@ -266,63 +266,72 @@ pub unsafe extern "C" fn pqsio_reader_next(
             },
             "missing callback for dataset kind"
         );
-        match r.next_batch()? {
-            None => return Ok(0),
-            Some(Batch::Pairs(mut rows)) => {
-                let names = rows
-                    .iter_mut()
-                    .map(|r| CString::new(std::mem::take(&mut r.read_id)))
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                let rs = rows
-                    .iter()
-                    .zip(&names)
-                    .map(|(r, s)| CPair {
-                        read_id: s.as_ptr(),
-                        chrom1: r.chrom1,
-                        pos1: r.pos1,
-                        chrom2: r.chrom2,
-                        pos2: r.pos2,
-                        strand1: r.strand1,
-                        strand2: r.strand2,
-                        mapq: r.mapq,
-                    })
-                    .collect::<Vec<_>>();
-                ensure!(
-                    pairs.unwrap()(rs.as_ptr(), rs.len(), user) == 0,
-                    "pairs callback failed"
-                );
-            }
-            Some(Batch::Concat(mut rows)) => {
-                let names = rows
-                    .iter_mut()
-                    .map(|r| CString::new(std::mem::take(&mut r.filter_reason)))
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                let rs = rows
-                    .iter()
-                    .zip(&names)
-                    .map(|(r, s)| CAlignment {
-                        read_idx: r.read_idx,
-                        read_length: r.read_length,
-                        read_start: r.read_start,
-                        read_end: r.read_end,
-                        strand: r.strand,
-                        chrom: r.chrom,
-                        start: r.start,
-                        end: r.end,
-                        mapping_quality: r.mapping_quality,
-                        identity: r.identity,
-                        filter_reason: s.as_ptr(),
-                    })
-                    .collect::<Vec<_>>();
-                ensure!(
-                    concat.unwrap()(rs.as_ptr(), rs.len(), user) == 0,
-                    "concat callback failed"
-                );
-            }
-        }
-        Ok(1)
+        deliver_batch(r.next_batch()?, pairs, concat, user)
     })
 }
+unsafe fn deliver_batch(
+    batch: Option<Batch>,
+    pairs: Option<PairsCallback>,
+    concat: Option<ConcatCallback>,
+    user: *mut c_void,
+) -> Result<i32> {
+    match batch {
+        None => return Ok(0),
+        Some(Batch::Pairs(mut rows)) => {
+            let names = rows
+                .iter_mut()
+                .map(|r| CString::new(std::mem::take(&mut r.read_id)))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let rs = rows
+                .iter()
+                .zip(&names)
+                .map(|(r, s)| CPair {
+                    read_id: s.as_ptr(),
+                    chrom1: r.chrom1,
+                    pos1: r.pos1,
+                    chrom2: r.chrom2,
+                    pos2: r.pos2,
+                    strand1: r.strand1,
+                    strand2: r.strand2,
+                    mapq: r.mapq,
+                })
+                .collect::<Vec<_>>();
+            ensure!(
+                pairs.unwrap()(rs.as_ptr(), rs.len(), user) == 0,
+                "pairs callback failed"
+            );
+        }
+        Some(Batch::Concat(mut rows)) => {
+            let names = rows
+                .iter_mut()
+                .map(|r| CString::new(std::mem::take(&mut r.filter_reason)))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let rs = rows
+                .iter()
+                .zip(&names)
+                .map(|(r, s)| CAlignment {
+                    read_idx: r.read_idx,
+                    read_length: r.read_length,
+                    read_start: r.read_start,
+                    read_end: r.read_end,
+                    strand: r.strand,
+                    chrom: r.chrom,
+                    start: r.start,
+                    end: r.end,
+                    mapping_quality: r.mapping_quality,
+                    identity: r.identity,
+                    filter_reason: s.as_ptr(),
+                })
+                .collect::<Vec<_>>();
+            ensure!(
+                concat.unwrap()(rs.as_ptr(), rs.len(), user) == 0,
+                "concat callback failed"
+            );
+        }
+    }
+    Ok(1)
+}
+
 /// # Safety
 /// `r` must be null or a live exclusively owned handle returned by this ABI.
 /// The handle becomes invalid and must never be used or freed again.
@@ -775,4 +784,109 @@ pub unsafe extern "C" fn pqsio_column_batch_destroy(b: *mut ColumnBatch) -> i32 
         }
         Ok(0)
     })
+}
+
+/// New streaming API. boundary: 0 rows, 1 complete reads; filter: 0 default,
+/// 1 matching alignments, 2 complete reads. Pairs requires boundary=filter=0.
+/// # Safety
+/// Same path/output pointer obligations as pqsio_reader_open.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stream_open(
+    path: *const c_char,
+    min_mapq: u8,
+    batch_rows: u64,
+    boundary: u32,
+    filter: u32,
+    out: *mut *mut StreamingReader,
+) -> i32 {
+    call(|| {
+        ensure!(!out.is_null(), "null output handle");
+        *out = ptr::null_mut();
+        let options = ReadOptions {
+            batch_rows: usize::try_from(batch_rows)?,
+            boundary: match boundary {
+                0 => ReadBoundary::Rows,
+                1 => ReadBoundary::CompleteReads,
+                _ => bail!("invalid read boundary"),
+            },
+            concat_filter: match filter {
+                0 => None,
+                1 => Some(ConcatFilter::MatchingAlignments),
+                2 => Some(ConcatFilter::CompleteReads),
+                _ => bail!("invalid concat filter"),
+            },
+        };
+        *out = Box::into_raw(Box::new(StreamingReader::open(
+            text(path)?,
+            min_mapq,
+            options,
+        )?));
+        Ok(0)
+    })
+}
+/// # Safety
+/// Handle must be live and exclusively accessed; callbacks borrow only during
+/// the call and must not unwind, destroy or reenter the reader.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stream_next(
+    r: *mut StreamingReader,
+    pairs: Option<PairsCallback>,
+    concat: Option<ConcatCallback>,
+    user: *mut c_void,
+) -> i32 {
+    call(|| {
+        let r = r.as_mut().context("null streaming reader")?;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            ensure!(
+                if r.kind() == Kind::Pairs {
+                    pairs.is_some()
+                } else {
+                    concat.is_some()
+                },
+                "missing callback for dataset kind"
+            );
+            deliver_batch(r.next_batch()?, pairs, concat, user)
+        }))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("panic while reading stream")));
+        if result.is_err() {
+            r.poison();
+        }
+        result
+    })
+}
+/// # Safety
+/// Handle must be live or null, and may not be reused after destruction.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stream_destroy(r: *mut StreamingReader) -> i32 {
+    call(|| {
+        if !r.is_null() {
+            drop(Box::from_raw(r));
+        }
+        Ok(0)
+    })
+}
+/// # Safety
+/// Handle must be live and not concurrently accessed.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stream_kind(r: *const StreamingReader) -> i32 {
+    call(|| {
+        Ok(match r.as_ref().context("null streaming reader")?.kind() {
+            Kind::Pairs => 0,
+            Kind::Concat => 1,
+        })
+    })
+}
+/// # Safety
+/// Same callback lifetime and handle obligations as pqsio_reader_contigs.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stream_contigs(
+    r: *const StreamingReader,
+    cb: Option<ContigsCallback>,
+    user: *mut c_void,
+) -> i32 {
+    if let Some(r) = r.as_ref() {
+        pqsio_reader_contigs(&r.source, cb, user)
+    } else {
+        call(|| bail!("null streaming reader"))
+    }
 }

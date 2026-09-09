@@ -478,3 +478,72 @@ fn columnar_concat_validates_whole_batch_and_owned_lifetime() -> anyhow::Result<
     assert_eq!(first.read_offsets, [0, 2]);
     Ok(())
 }
+
+#[test]
+fn streaming_options_and_complete_read_batches() -> anyhow::Result<()> {
+    let scratch = Scratch::new();
+    let path = scratch.0.join("streaming-concat");
+    let mut writer = Writer::create(&path, Kind::Concat, contigs(), 2)?;
+    let mut expected = vec![];
+    for (id, count) in [(1, 2), (2, 5), (3, 1)] {
+        let rows: Vec<_> = (0..count)
+            .map(|i| Alignment {
+                read_idx: id,
+                read_length: 100,
+                read_start: 0,
+                read_end: 50,
+                strand: b'+',
+                chrom: 0,
+                start: 0,
+                end: 50,
+                mapping_quality: if i == 0 { 60 } else { 0 },
+                identity: 0.5,
+                filter_reason: "pass".into(),
+            })
+            .collect();
+        writer.write_read(&rows)?;
+        expected.extend(rows);
+    }
+    writer.finish()?;
+    for boundary in [ReadBoundary::Rows, ReadBoundary::CompleteReads] {
+        for filter in [
+            ConcatFilter::MatchingAlignments,
+            ConcatFilter::CompleteReads,
+        ] {
+            for batch_rows in [1, 3, 20] {
+                let mut r = StreamingReader::open(
+                    &path,
+                    30,
+                    ReadOptions {
+                        batch_rows,
+                        boundary,
+                        concat_filter: Some(filter),
+                    },
+                )?;
+                let mut result = vec![];
+                while let Some(Batch::Concat(rows)) = r.next_batch()? {
+                    assert!(!rows.is_empty());
+                    if boundary == ReadBoundary::Rows {
+                        assert!(rows.len() <= batch_rows);
+                    }
+                    if rows.len() > batch_rows {
+                        assert!(rows.iter().all(|row| row.read_idx == rows[0].read_idx));
+                    }
+                    result.extend(rows);
+                }
+                assert_eq!(result, expected.iter().filter(|r| filter == ConcatFilter::CompleteReads || r.mapping_quality >= 30).cloned().collect::<Vec<_>>());
+                assert!(r.next_batch()?.is_none());
+            }
+        }
+    }
+    assert!(StreamingReader::open(
+        &path,
+        0,
+        ReadOptions {
+            batch_rows: 0,
+            ..Default::default()
+        }
+    )
+    .is_err());
+    Ok(())
+}
