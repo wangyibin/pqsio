@@ -152,3 +152,101 @@ fn output_race_does_not_overwrite() {
     assert!(w.finish().is_err());
     assert_eq!(fs::read_to_string(p.join("keep")).unwrap(), "untouched");
 }
+
+#[test]
+fn bulk_reads_preserve_groups_and_counts_across_calls() {
+    let s = Scratch::new();
+    let path = s.0.join("bulk.pqs");
+    let mut w = Writer::create(&path, Kind::Concat, contigs(), 3).unwrap();
+    let rows = vec![
+        alignment(1, 0),
+        alignment(1, 10),
+        alignment(2, 0),
+        alignment(3, 0),
+        alignment(3, 0),
+        alignment(3, 1),
+        alignment(3, 30),
+    ];
+    w.write_reads(&rows, &[0, 2, 3, 7]).unwrap();
+    w.write_reads_owned(vec![alignment(4, 0), alignment(4, 1)], &[0, 2])
+        .unwrap();
+    w.write_read(&[alignment(5, 0)]).unwrap();
+    let c = w.finish().unwrap();
+    assert_eq!(
+        (c.q0_records, c.q1_records, c.q0_concats, c.q1_concats),
+        (10, 4, 5, 3)
+    );
+    let mut r = Reader::open(&path, 0).unwrap();
+    let mut lengths = vec![];
+    while let Some(Batch::Concat(batch)) = r.next_batch().unwrap() {
+        lengths.push(batch.len());
+    }
+    assert_eq!(lengths, vec![3, 4, 3]);
+}
+#[test]
+fn invalid_bulk_batch_is_not_partially_accepted() {
+    let s = Scratch::new();
+    let mut w = Writer::create(s.0.join("bulk.pqs"), Kind::Concat, contigs(), 1).unwrap();
+    let rows = vec![alignment(1, 1), alignment(2, 0)];
+    for offsets in [
+        vec![],
+        vec![1, 2],
+        vec![0, 1],
+        vec![0, 0, 2],
+        vec![0, 3, 2],
+        vec![0, usize::MAX, 2],
+    ] {
+        assert!(w.write_reads(&rows, &offsets).is_err());
+    }
+    let mut bad = rows.clone();
+    bad[1].read_end = 101;
+    assert!(w.write_reads_owned(bad, &[0, 1, 2]).is_err());
+    assert!(w.write_reads(&rows, &[0, 2]).is_err()); // mixed IDs within a read
+    assert!(w
+        .write_reads(&[alignment(2, 1), alignment(1, 1)], &[0, 1, 2])
+        .is_err());
+    w.write_reads_owned(rows, &[0, 1, 2]).unwrap();
+    assert!(w.write_reads(&[alignment(2, 1)], &[0, 1]).is_err());
+    let c = w.finish().unwrap();
+    assert_eq!(
+        (c.q0_records, c.q1_records, c.q0_concats, c.q1_concats),
+        (2, 1, 2, 1)
+    );
+}
+#[test]
+fn owned_pairs_keep_order_and_validate_before_flushing() {
+    let s = Scratch::new();
+    let p = s.0.join("pairs.pqs");
+    let mut w = Writer::create(&p, Kind::Pairs, contigs(), 2).unwrap();
+    let mut bad = pair(2);
+    bad.chrom2 = 500;
+    assert!(w.write_pairs_owned(vec![pair(1), bad]).is_err());
+    w.write_pairs(&[pair(0)]).unwrap();
+    w.write_pairs_owned(vec![pair(1), pair(2), pair(3)])
+        .unwrap();
+    assert_eq!(w.finish().unwrap().q0_records, 4);
+    let mut r = Reader::open(&p, 0).unwrap();
+    let mut all = vec![];
+    while let Some(Batch::Pairs(rows)) = r.next_batch().unwrap() {
+        all.extend(rows);
+    }
+    assert_eq!(all, vec![pair(0), pair(1), pair(2), pair(3)]);
+}
+#[test]
+fn empty_bulk_is_noop_and_io_error_poisoning_survives() {
+    let s = Scratch::new();
+    let p = s.0.join("empty.pqs");
+    let mut w = Writer::create(&p, Kind::Concat, contigs(), 1).unwrap();
+    w.write_reads(&[], &[0]).unwrap();
+    w.write_reads_owned(vec![], &[0]).unwrap();
+    assert_eq!(w.finish().unwrap().q0_records, 0);
+    let p = s.0.join("failure.pqs");
+    let mut w = Writer::create(&p, Kind::Concat, contigs(), 1).unwrap();
+    fs::create_dir(s.0.join("failure.pqs.partial/q0/0.parquet")).unwrap();
+    assert!(w.write_reads_owned(vec![alignment(1, 1)], &[0, 1]).is_err());
+    assert!(w.write_read(&[alignment(2, 1)]).is_err());
+    assert!(w.finish().is_err());
+    drop(w);
+    assert!(!p.exists());
+    assert!(!s.0.join("failure.pqs.partial").exists());
+}

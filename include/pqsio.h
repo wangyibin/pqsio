@@ -32,6 +32,11 @@ int32_t pqsio_writer_open(const char *, uint32_t, const pqsio_contig *, size_t, 
 int32_t pqsio_write_pairs(pqsio_writer *, const pqsio_pair *, size_t);
 /* Exactly one complete read per call, strictly increasing read_idx. */
 int32_t pqsio_write_read(pqsio_writer *, const pqsio_alignment *, size_t);
+/* Added in pqsio 0.0.2; ABI v1 layouts unchanged. Offsets have read_count+1
+ * elements, start at 0, end at n, and are strictly increasing. Each interval
+ * is one complete read; IDs increase across all calls. Empty batch: n=0,
+ * offsets={0}. Invalid input is rejected before any record is accepted. */
+int32_t pqsio_write_reads(pqsio_writer *, const pqsio_alignment *, size_t n, const size_t *offsets, size_t offset_count);
 int32_t pqsio_writer_finish(pqsio_writer *);
 /* Destroy aborts an unfinished writer; finish does not destroy the handle. */
 int32_t pqsio_writer_destroy(pqsio_writer *);

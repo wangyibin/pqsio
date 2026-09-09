@@ -17,6 +17,9 @@ public:
     ~Writer() { pqsio_writer_destroy(handle_); }
     void write_pairs(const std::vector<pqsio_pair> &rows) { check(pqsio_write_pairs(handle_, rows.data(), rows.size())); }
     void write_read(const std::vector<pqsio_alignment> &rows) { check(pqsio_write_read(handle_, rows.data(), rows.size())); }
+    void write_reads(const std::vector<pqsio_alignment> &rows, const std::vector<size_t> &offsets) {
+        check(pqsio_write_reads(handle_, rows.data(), rows.size(), offsets.data(), offsets.size()));
+    }
     void finish() { check(pqsio_writer_finish(handle_)); }
 };
 class Reader {

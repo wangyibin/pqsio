@@ -57,8 +57,8 @@ pub struct Counts {
     pub q1_concats: u64,
 }
 
-/// Synchronous bounded writer. Concat calls each submit exactly one complete
-/// read, with strictly increasing global read IDs. A single oversized read is
+/// Synchronous bounded writer. Concat submissions contain complete reads,
+/// with strictly increasing global read IDs. A single oversized read is
 /// allowed to exceed the shard target, but is never split.
 pub struct Writer {
     kind: Kind,
@@ -70,6 +70,7 @@ pub struct Writer {
     concat: Vec<Alignment>,
     last_read: Option<u64>,
     shard: usize,
+    shard_concats: [u64; 2],
     counts: Counts,
     finished: bool,
     failed: bool,
@@ -124,6 +125,7 @@ impl Writer {
             concat: vec![],
             last_read: None,
             shard: 0,
+            shard_concats: [0, 0],
             counts: Counts::default(),
             finished: false,
             failed: false,
@@ -144,7 +146,7 @@ impl Writer {
         ensure!(pos <= c.length, "position exceeds contig {} length", c.name);
         Ok(())
     }
-    pub fn write_pairs(&mut self, rows: &[Pair]) -> Result<()> {
+    fn validate_pairs(&self, rows: &[Pair]) -> Result<()> {
         self.active()?;
         ensure!(self.kind == Kind::Pairs, "requires pairs writer");
         for r in rows {
@@ -156,24 +158,46 @@ impl Writer {
                 "strand must be + or -"
             );
         }
-        for r in rows {
-            self.pairs.push(r.clone());
-            if self.pairs.len() >= self.chunk_size {
+        Ok(())
+    }
+    pub fn write_pairs(&mut self, rows: &[Pair]) -> Result<()> {
+        self.validate_pairs(rows)?;
+        for part in rows.chunks(self.chunk_size) {
+            // Extend up to the boundary without cloning an intermediate batch.
+            let mut remaining = part;
+            while !remaining.is_empty() {
+                let n = remaining.len().min(self.chunk_size - self.pairs.len());
+                self.pairs.extend_from_slice(&remaining[..n]);
+                remaining = &remaining[n..];
+                if self.pairs.len() == self.chunk_size {
+                    self.flush()?;
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Transfer records and their strings into the writer without cloning them.
+    pub fn write_pairs_owned(&mut self, rows: Vec<Pair>) -> Result<()> {
+        self.validate_pairs(&rows)?;
+        let mut rows = rows.into_iter();
+        while rows.len() > 0 {
+            let n = rows.len().min(self.chunk_size - self.pairs.len());
+            self.pairs.extend(rows.by_ref().take(n));
+            if self.pairs.len() == self.chunk_size {
                 self.flush()?;
             }
         }
         Ok(())
     }
-    pub fn write_read(&mut self, rows: &[Alignment]) -> Result<()> {
-        self.active()?;
-        ensure!(self.kind == Kind::Concat, "requires concat writer");
+    fn validate_read(&self, rows: &[Alignment], previous: Option<u64>) -> Result<bool> {
         let first = rows
             .first()
             .context("a complete read must contain at least one alignment")?;
         ensure!(
-            self.last_read.is_none_or(|id| first.read_idx > id),
+            previous.is_none_or(|id| first.read_idx > id),
             "read IDs must be strictly increasing; submit each complete read once"
         );
+        let mut has_q1 = false;
         for r in rows {
             ensure!(
                 r.read_idx == first.read_idx && r.read_length == first.read_length,
@@ -189,15 +213,78 @@ impl Writer {
                 strand_ok(r.strand) && r.identity.is_finite(),
                 "invalid strand or non-finite identity"
             );
+            has_q1 |= r.mapping_quality > 0;
         }
-        if !self.concat.is_empty() && self.concat.len().saturating_add(rows.len()) > self.chunk_size
-        {
+        Ok(has_q1)
+    }
+    fn start_read(&mut self, len: usize, id: u64, has_q1: bool) -> Result<()> {
+        if !self.concat.is_empty() && self.concat.len().saturating_add(len) > self.chunk_size {
             self.flush()?;
         }
-        self.concat.extend_from_slice(rows);
-        self.last_read = Some(first.read_idx);
+        self.last_read = Some(id);
+        self.shard_concats[0] += 1;
+        self.shard_concats[1] += u64::from(has_q1);
+        Ok(())
+    }
+    fn finish_read(&mut self) -> Result<()> {
         if self.concat.len() >= self.chunk_size {
             self.flush()?;
+        }
+        Ok(())
+    }
+    pub fn write_read(&mut self, rows: &[Alignment]) -> Result<()> {
+        self.active()?;
+        ensure!(self.kind == Kind::Concat, "requires concat writer");
+        let has_q1 = self.validate_read(rows, self.last_read)?;
+        self.start_read(rows.len(), rows[0].read_idx, has_q1)?;
+        self.concat.extend_from_slice(rows);
+        self.finish_read()
+    }
+    /// Offsets start at zero and end at rows.len(); each interval is one
+    /// nonempty complete read. The whole batch is validated before acceptance.
+    fn validate_reads(&self, rows: &[Alignment], offsets: &[usize]) -> Result<Vec<bool>> {
+        self.active()?;
+        ensure!(self.kind == Kind::Concat, "requires concat writer");
+        ensure!(
+            offsets.first() == Some(&0) && offsets.last() == Some(&rows.len()),
+            "read offsets must start at 0 and end at the number of alignments"
+        );
+        ensure!(
+            offsets
+                .windows(2)
+                .all(|w| w[0] < w[1] && w[1] <= rows.len()),
+            "read offsets must be strictly increasing and within the batch"
+        );
+        let mut previous = self.last_read;
+        let mut qualities = Vec::with_capacity(offsets.len() - 1);
+        for window in offsets.windows(2) {
+            let read = &rows[window[0]..window[1]];
+            qualities.push(self.validate_read(read, previous)?);
+            previous = Some(read[0].read_idx);
+        }
+        Ok(qualities)
+    }
+    pub fn write_reads(&mut self, rows: &[Alignment], offsets: &[usize]) -> Result<()> {
+        let qualities = self.validate_reads(rows, offsets)?;
+        for (window, has_q1) in offsets.windows(2).zip(qualities) {
+            let read = &rows[window[0]..window[1]];
+            self.start_read(read.len(), read[0].read_idx, has_q1)?;
+            self.concat.extend_from_slice(read);
+            self.finish_read()?;
+        }
+        Ok(())
+    }
+    /// Owned counterpart of write_reads, used by the C/Python adapters to
+    /// avoid cloning all alignment strings a second time.
+    pub fn write_reads_owned(&mut self, rows: Vec<Alignment>, offsets: &[usize]) -> Result<()> {
+        let qualities = self.validate_reads(&rows, offsets)?;
+        let mut rows = rows.into_iter().peekable();
+        for (window, has_q1) in offsets.windows(2).zip(qualities) {
+            let n = window[1] - window[0];
+            let id = rows.peek().expect("validated nonempty read").read_idx;
+            self.start_read(n, id, has_q1)?;
+            self.concat.extend(rows.by_ref().take(n));
+            self.finish_read()?;
         }
         Ok(())
     }
@@ -234,21 +321,9 @@ impl Writer {
         }
         self.counts.q0_records += frame.height() as u64;
         self.counts.q1_records += q1.height() as u64;
-        if self.kind == Kind::Concat {
-            self.counts.q0_concats += self
-                .concat
-                .iter()
-                .map(|r| r.read_idx)
-                .collect::<HashSet<_>>()
-                .len() as u64;
-            self.counts.q1_concats += self
-                .concat
-                .iter()
-                .filter(|r| r.mapping_quality > 0)
-                .map(|r| r.read_idx)
-                .collect::<HashSet<_>>()
-                .len() as u64;
-        }
+        self.counts.q0_concats += self.shard_concats[0];
+        self.counts.q1_concats += self.shard_concats[1];
+        self.shard_concats = [0, 0];
         self.pairs.clear();
         self.concat.clear();
         self.shard += 1;
@@ -495,97 +570,152 @@ impl Reader {
         if self.min_mapq > 0 {
             df = df.filter(&df.column(quality)?.u8()?.gt_eq(self.min_mapq))?;
         }
-        let string_names: &[&str] = if self.kind == Kind::Pairs {
-            &["read_idx", "chrom1", "chrom2", "strand1", "strand2"]
-        } else {
-            &["strand", "chrom", "filter_reason"]
+        // Resolve columns once per shard. Native integer buffers are shared,
+        // and only output-owned strings (read IDs/filter reasons) are allocated.
+        let number = |name: &str| Numbers::new(df.column(name)?);
+        let chromosome = |name: &str| {
+            Codes::new(df.column(name)?, |s| {
+                self.contig_ids
+                    .get(s)
+                    .copied()
+                    .context("unknown contig in shard")
+            })
         };
-        for n in string_names {
-            let s = df
-                .column(n)?
-                .as_materialized_series()
-                .cast(&DataType::String)?;
-            df.replace(n, s)?;
-        }
-        let numeric_names: &[&str] = if self.kind == Kind::Pairs {
-            &["pos1", "pos2", "mapq"]
-        } else {
-            &[
-                "read_idx",
-                "read_length",
-                "read_start",
-                "read_end",
-                "start",
-                "end",
-                "mapping_quality",
-            ]
+        let strand = |name: &str| {
+            Codes::new(df.column(name)?, |s| {
+                ensure!(s == "+" || s == "-", "invalid strand in PQS");
+                Ok(s.as_bytes()[0])
+            })
         };
-        for n in numeric_names {
-            let s = df
-                .column(n)?
-                .as_materialized_series()
-                .cast(&DataType::UInt64)?;
-            df.replace(n, s)?;
-        }
-        let text = |n: &str, i| -> Result<String> {
-            Ok(df
-                .column(n)?
-                .str()?
-                .get(i)
-                .context("null string in PQS")?
-                .into())
-        };
-        let num = |n: &str, i| -> Result<u64> {
-            df.column(n)?.u64()?.get(i).context("null integer in PQS")
-        };
-        let chrom = |n: &str, i| -> Result<u32> {
-            let s = text(n, i)?;
-            Ok(*self.contig_ids.get(&s).context("unknown contig in shard")?)
-        };
-        let strand = |n: &str, i| -> Result<u8> {
-            let s = text(n, i)?;
-            ensure!(s == "+" || s == "-", "invalid strand in PQS");
-            Ok(s.as_bytes()[0])
-        };
+        let mapq = number(quality)?;
         if self.kind == Kind::Pairs {
+            let read_ids = df.column("read_idx")?.cast(&DataType::String)?;
+            let read_ids = read_ids.str()?;
+            let chrom1 = chromosome("chrom1")?;
+            let chrom2 = chromosome("chrom2")?;
+            let pos1 = number("pos1")?;
+            let pos2 = number("pos2")?;
+            let strand1 = strand("strand1")?;
+            let strand2 = strand("strand2")?;
             let rows = (0..df.height())
                 .map(|i| {
                     Ok(Pair {
-                        read_id: text("read_idx", i)?,
-                        chrom1: chrom("chrom1", i)?,
-                        pos1: num("pos1", i)?,
-                        chrom2: chrom("chrom2", i)?,
-                        pos2: num("pos2", i)?,
-                        strand1: strand("strand1", i)?,
-                        strand2: strand("strand2", i)?,
-                        mapq: num("mapq", i)?.try_into()?,
+                        read_id: read_ids.get(i).context("null read ID")?.to_owned(),
+                        chrom1: chrom1.at(i)?,
+                        chrom2: chrom2.at(i)?,
+                        pos1: pos1.at(i)?,
+                        pos2: pos2.at(i)?,
+                        strand1: strand1.at(i)?,
+                        strand2: strand2.at(i)?,
+                        mapq: mapq.at(i)?.try_into()?,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
             Ok(Some(Batch::Pairs(rows)))
         } else {
-            let identity = df
-                .column("identity")?
-                .as_materialized_series()
-                .cast(&DataType::Float32)?;
+            let read_idx = number("read_idx")?;
+            let read_length = number("read_length")?;
+            let read_start = number("read_start")?;
+            let read_end = number("read_end")?;
+            let strand = strand("strand")?;
+            let chrom = chromosome("chrom")?;
+            let start = number("start")?;
+            let end = number("end")?;
+            let identity = df.column("identity")?.cast(&DataType::Float32)?;
+            let identity = identity.f32()?;
+            let reasons = df.column("filter_reason")?.cast(&DataType::String)?;
+            let reasons = reasons.str()?;
             let rows = (0..df.height())
                 .map(|i| {
                     Ok(Alignment {
-                        read_idx: num("read_idx", i)?,
-                        read_length: num("read_length", i)?.try_into()?,
-                        read_start: num("read_start", i)?.try_into()?,
-                        read_end: num("read_end", i)?.try_into()?,
-                        strand: strand("strand", i)?,
-                        chrom: chrom("chrom", i)?,
-                        start: num("start", i)?,
-                        end: num("end", i)?,
-                        mapping_quality: num("mapping_quality", i)?.try_into()?,
-                        identity: identity.f32()?.get(i).context("null identity")?,
-                        filter_reason: text("filter_reason", i)?,
+                        read_idx: read_idx.at(i)?,
+                        read_length: read_length.at(i)?.try_into()?,
+                        read_start: read_start.at(i)?.try_into()?,
+                        read_end: read_end.at(i)?.try_into()?,
+                        strand: strand.at(i)?,
+                        chrom: chrom.at(i)?,
+                        start: start.at(i)?,
+                        end: end.at(i)?,
+                        mapping_quality: mapq.at(i)?.try_into()?,
+                        identity: identity.get(i).context("null identity")?,
+                        filter_reason: reasons.get(i).context("null filter reason")?.to_owned(),
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
             Ok(Some(Batch::Concat(rows)))
+        }
+    }
+}
+// ChunkedArray clones share their buffers; normal PQS integer columns never
+// need to be expanded to u64 solely to construct row records.
+enum Numbers {
+    U8(UInt8Chunked),
+    U32(UInt32Chunked),
+    U64(UInt64Chunked),
+}
+impl Numbers {
+    fn new(column: &Column) -> Result<Self> {
+        Ok(match column.dtype() {
+            DataType::UInt8 => Self::U8(column.u8()?.clone()),
+            DataType::UInt32 => Self::U32(column.u32()?.clone()),
+            DataType::UInt64 => Self::U64(column.u64()?.clone()),
+            _ => Self::U64(column.cast(&DataType::UInt64)?.u64()?.clone()),
+        })
+    }
+    fn at(&self, i: usize) -> Result<u64> {
+        match self {
+            Self::U8(c) => c.get(i).map(u64::from),
+            Self::U32(c) => c.get(i).map(u64::from),
+            Self::U64(c) => c.get(i),
+        }
+        .context("null integer in PQS")
+    }
+}
+enum Codes<T> {
+    Local {
+        indices: UInt32Chunked,
+        values: Vec<Option<T>>,
+    },
+    Plain(Vec<T>),
+}
+impl<T: Copy> Codes<T> {
+    fn new(column: &Column, decode: impl Fn(&str) -> Result<T>) -> Result<Self> {
+        if matches!(column.dtype(), DataType::Categorical(_, _)) {
+            let cat = column.as_materialized_series().categorical()?;
+            let rev = cat.get_rev_map();
+            if rev.is_local() {
+                // Unused dictionary entries may contain values removed by a
+                // quality filter. Validate only codes that are actually read.
+                let values = rev
+                    .get_categories()
+                    .values_iter()
+                    .map(|s| decode(s).ok())
+                    .collect();
+                return Ok(Self::Local {
+                    indices: cat.physical().clone(),
+                    values,
+                });
+            }
+        }
+        let strings = column.cast(&DataType::String)?;
+        let values = strings
+            .str()?
+            .into_iter()
+            .map(|s| decode(s.context("null categorical value")?))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self::Plain(values))
+    }
+    fn at(&self, i: usize) -> Result<T> {
+        match self {
+            Self::Local { indices, values } => {
+                let code = indices.get(i).context("null categorical code")?;
+                values
+                    .get(code as usize)
+                    .copied()
+                    .flatten()
+                    .context("invalid contig or strand in categorical column")
+            }
+            Self::Plain(values) => values.get(i).copied().context("missing categorical value"),
         }
     }
 }

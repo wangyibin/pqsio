@@ -4,7 +4,7 @@ import ctypes.util
 from dataclasses import dataclass, fields
 import os
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 @dataclass
 class Pair:
@@ -63,6 +63,7 @@ def _library():
         "abi_version": ([], C.c_uint32), "last_error": ([], C.c_char_p),
         "writer_open": ([C.c_char_p, C.c_uint32, C.POINTER(_Contig), C.c_size_t, C.c_size_t, C.POINTER(C.c_void_p)], C.c_int32),
         "write_pairs": ([C.c_void_p, C.POINTER(_Pair), C.c_size_t], C.c_int32),
+        "write_reads": ([C.c_void_p, C.POINTER(_Alignment), C.c_size_t, C.POINTER(C.c_size_t), C.c_size_t], C.c_int32),
         "write_read": ([C.c_void_p, C.POINTER(_Alignment), C.c_size_t], C.c_int32),
         "writer_finish": ([C.c_void_p], C.c_int32), "writer_destroy": ([C.c_void_p], C.c_int32),
         "reader_open": ([C.c_char_p, C.c_uint8, C.POINTER(C.c_void_p)], C.c_int32),
@@ -71,6 +72,8 @@ def _library():
         "reader_next": ([C.c_void_p, _PairsCB, _ConcatCB, C.c_void_p], C.c_int32),
     }
     for name, (args, result) in signatures.items():
+        if name == "write_reads" and not hasattr(lib, "pqsio_write_reads"):
+            continue  # Existing methods still work with ABI v1 from pqsio 0.0.1.
         fn = getattr(lib, "pqsio_" + name)
         fn.argtypes, fn.restype = args, result
     if lib.pqsio_abi_version() != 1:
@@ -94,20 +97,25 @@ def _utf8(value):
         raise ValueError("Strings must not contain NUL")
     return data
 
+def _strand(value):
+    if value not in ("+", "-"):
+        raise ValueError("Strand must be + or -")
+    return ord(value)
+
 def _encode(row, cls):
-    values = []
-    for name, dtype in cls._fields_:
-        value = getattr(row, name)
-        if dtype == C.c_char_p:
-            value = _utf8(value)
-        elif name.startswith("strand"):
-            if value not in ("+", "-"):
-                raise ValueError("Strand must be + or -")
-            value = ord(value)
-        elif dtype != C.c_float:
-            value = _uint(value, C.sizeof(dtype) * 8)
-        values.append(value)
-    return cls(*values)
+    # The two ABI layouts are fixed. Avoid per-field reflection, dtype tests
+    # and sizeof calls while keeping exactly the same validation as before.
+    if cls is _Pair:
+        return cls(_utf8(row.read_id), _uint(row.chrom1, 32), _uint(row.pos1, 64),
+                   _uint(row.chrom2, 32), _uint(row.pos2, 64),
+                   _strand(row.strand1), _strand(row.strand2), _uint(row.mapq, 8))
+    if cls is _Alignment:
+        return cls(_uint(row.read_idx, 64), _uint(row.read_length, 32),
+                   _uint(row.read_start, 32), _uint(row.read_end, 32),
+                   _strand(row.strand), _uint(row.chrom, 32),
+                   _uint(row.start, 64), _uint(row.end, 64),
+                   _uint(row.mapping_quality, 8), row.identity, _utf8(row.filter_reason))
+    raise TypeError("Unsupported PQS record layout")
 
 def _decode(row, cls):
     values = {}
@@ -168,6 +176,33 @@ class ConcatWriter(_Writer):
         rows = list(rows)
         batch = (_Alignment * len(rows))(*[_encode(r, _Alignment) for r in rows])
         _check(self._lib.pqsio_write_read(self._handle, batch, len(batch)))
+
+    def write_batch(self, rows, read_offsets):
+        """Submit flat alignments and offsets delimiting complete, ordered reads.
+
+        Offsets start at 0 and end at len(rows). [0] denotes an empty batch.
+        Invalid input is rejected before accepting any records in the batch.
+        """
+        self._active()
+        if not hasattr(self._lib, "pqsio_write_reads"):
+            raise RuntimeError("Bulk concat writing requires a pqsio >= 0.0.2 shared library")
+        rows = list(rows)
+        offsets = list(read_offsets)
+        width = C.sizeof(C.c_size_t) * 8
+        offsets = (C.c_size_t * len(offsets))(*[_uint(i, width) for i in offsets])
+        batch = (_Alignment * len(rows))(*[_encode(r, _Alignment) for r in rows])
+        _check(self._lib.pqsio_write_reads(self._handle, batch, len(batch), offsets, len(offsets)))
+
+    def write_reads(self, reads):
+        """Submit an iterable of complete reads in one native call.
+
+        Batch size is controlled by the caller; the iterable is materialized.
+        """
+        rows, offsets = [], [0]
+        for read in reads:
+            rows.extend(read)
+            offsets.append(len(rows))
+        self.write_batch(rows, offsets)
 
 class Reader:
     def __init__(self, path, min_mapq=0):

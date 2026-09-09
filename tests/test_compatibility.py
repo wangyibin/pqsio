@@ -81,6 +81,41 @@ class Compatibility(unittest.TestCase):
                 else:
                     self.assertEqual(rows[0],Alignment(1,100,50,100,"-",0,50,100,30,1.0))
 
+    def test_local_dictionary_codes_and_unused_invalid_entries(self):
+        path=self.root/"dictionary"
+        self.fixture(path,"pairs")
+        # Different category order in the two chromosome columns. Invalid
+        # dictionary values belong only to rows removed by the MAPQ filter.
+        frame=pl.DataFrame({"read_idx":["bad","one","two"],
+            "chrom1":["missing","a","a"],"chrom2":["a","a","a"],
+            "pos1":pl.Series([1,2,3],dtype=pl.UInt32),"pos2":pl.Series([9,8,7],dtype=pl.UInt64),
+            "strand1":["invalid","-","+"],"strand2":["+","+","-"],
+            "mapq":pl.Series([1,20,60],dtype=pl.UInt8)}).with_columns([
+                pl.col(n).cast(pl.Categorical) for n in ["chrom1","chrom2","strand1","strand2"]])
+        frame.write_parquet(path/"q0/0.parquet")
+        frame.write_parquet(path/"q1/0.parquet")
+        with Reader(path,min_mapq=20) as reader:
+            rows=[r for b in reader.iter_batches() for r in b]
+        self.assertEqual(rows,[Pair("one",0,2,0,8,"-","+",20),Pair("two",0,3,0,7,"+","-",60)])
+        with Reader(path) as reader:
+            with self.assertRaises(RuntimeError):
+                list(reader.iter_batches())
+
+    def test_null_integer_and_null_category_are_errors(self):
+        for column in ("pos1","chrom1"):
+            path=self.root/("null_"+column)
+            self.fixture(path,"pairs")
+            frame=pl.DataFrame({"read_idx":["r"],"chrom1":["a"],"chrom2":["a"],
+                "pos1":pl.Series([1],dtype=pl.UInt32),"pos2":pl.Series([2],dtype=pl.UInt32),
+                "strand1":["+"],"strand2":["-"],"mapq":pl.Series([0],dtype=pl.UInt8)})
+            frame=frame.with_columns(pl.lit(None).cast(frame.schema[column]).alias(column))
+            if column=="chrom1":
+                frame=frame.with_columns(pl.col("chrom1").cast(pl.Categorical))
+            frame.write_parquet(path/"q0/0.parquet")
+            with Reader(path) as reader:
+                with self.assertRaises(RuntimeError):
+                    list(reader.iter_batches())
+
     def fixture(self, path, kind):
         (path/"q0").mkdir(parents=True)
         (path/"q1").mkdir()

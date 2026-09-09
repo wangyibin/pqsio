@@ -11,6 +11,15 @@ OUTPUT=PROJECT/"tests/output"
 OUTPUT.mkdir(exist_ok=True)
 
 class NativeABI(unittest.TestCase):
+    def test_cpp_bulk_api(self):
+        lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
+        with tempfile.TemporaryDirectory(dir=OUTPUT) as tmp:
+            exe=Path(tmp)/"bulk"
+            subprocess.run(["c++","-std=c++17","-Wall","-Wextra","-Werror","-I",str(PROJECT/"include"),
+                str(PROJECT/"tests/bulk.cpp"),"-L",str(lib.parent),"-lpqsio","-Wl,-rpath,"+str(lib.parent),
+                "-o",str(exe)],check=True,capture_output=True,text=True,timeout=60)
+            subprocess.run([str(exe),str(Path(tmp)/"concat.pqs")],check=True,capture_output=True,text=True,timeout=60)
+
     def test_c_and_cpp_read_write_both_formats(self):
         lib=Path(os.environ["PQSIO_LIBRARY"]).resolve()
         for compiler,source,standard in (("cc","smoke.c","c11"),("c++","smoke.cpp","c++17")):

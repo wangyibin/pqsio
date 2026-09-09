@@ -57,6 +57,51 @@ class StorageTest(unittest.TestCase):
         r.close()
         with self.assertRaises(RuntimeError):
             list(r.iter_batches())
+    def test_bulk_concat_boundaries_and_atomic_rejection(self):
+        a=lambda i,q: Alignment(i,100,0,50,"+",0,0,50,q,0.5)
+        with ConcatWriter(self.path, {"a":100}, chunk_size=2) as w:
+            w.write_reads([])
+            for offsets in ([], [1,2], [0,0,2], [0,3,2], [0,1]):
+                with self.assertRaises(RuntimeError):
+                    w.write_batch([a(1,0),a(2,1)],offsets)
+            with self.assertRaises(RuntimeError):
+                w.write_reads([[a(1,0)],[a(1,1)]])
+            with self.assertRaises(RuntimeError):
+                w.write_reads([[],[a(1,0)]])
+            with self.assertRaises(ValueError):
+                w.write_batch([a(1,0)],[-1,1])
+            w.write_reads([[a(1,0),a(1,1),a(1,30)],[a(2,0)]])
+            w.write_read([a(3,1)])
+        with Reader(self.path) as r:
+            self.assertEqual([[x.read_idx for x in b] for b in r.iter_batches()],[[1,1,1],[2,3]])
+        with ConcatReader(self.path,min_mapq=1) as r:
+            self.assertEqual([[x.read_idx for x in b] for b in r.iter_reads()],[[1,1],[3]])
+
+    def test_bulk_null_offsets_and_closed_handle(self):
+        import pqsio
+        with ConcatWriter(self.path,{"a":100}) as w:
+            lib=pqsio._library()
+            self.assertEqual(lib.pqsio_write_reads(w._handle,None,0,None,1),-1)
+            self.assertIn(b"null array",lib.pqsio_last_error())
+        with self.assertRaises(RuntimeError):
+            w.write_reads([])
+
+    def test_fast_encoding_keeps_validation(self):
+        import pqsio
+        from dataclasses import replace
+        pair=Pair("r",0,1,0,2,"+","-",1)
+        for name, value in (("chrom1",-1),("chrom2",2**32),("pos1",2**64),
+                            ("pos2",1.5),("mapq",256),("strand1","++"),("read_id","a\0b")):
+            with self.subTest(field=name), self.assertRaises(ValueError):
+                pqsio._encode(replace(pair,**{name:value}),pqsio._Pair)
+        row=Alignment(1,100,0,50,"+",0,0,50,1,0.5)
+        for name, value in (("read_idx",-1),("read_length",2**32),("read_start",-1),
+                            ("read_end",2**32),("strand","?"),("chrom",2**32),
+                            ("start",-1),("end",2**64),("mapping_quality",256),
+                            ("filter_reason","a\0b")):
+            with self.subTest(field=name), self.assertRaises(ValueError):
+                pqsio._encode(replace(row,**{name:value}),pqsio._Alignment)
+
     def test_null_ffi_handle_reports_error(self):
         import pqsio
         lib=pqsio._library()

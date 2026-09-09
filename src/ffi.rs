@@ -131,7 +131,7 @@ pub unsafe extern "C" fn pqsio_write_pairs(w: *mut Writer, rows: *const CPair, n
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        w.write_pairs(&rs)?;
+        w.write_pairs_owned(rs)?;
         Ok(0)
     })
 }
@@ -164,7 +164,45 @@ pub unsafe extern "C" fn pqsio_write_read(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        w.write_read(&rs)?;
+        w.write_reads_owned(rs, &[0, n])?;
+        Ok(0)
+    })
+}
+/// Submit multiple complete reads with offsets [0, ..., n].
+/// # Safety
+/// `w` must be a live exclusively accessed writer. `rows` and `offsets` must
+/// contain `n` and `offset_count` initialized entries respectively. All filter
+/// strings must be readable and NUL-terminated for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_write_reads(
+    w: *mut Writer,
+    rows: *const CAlignment,
+    n: usize,
+    offsets: *const usize,
+    offset_count: usize,
+) -> i32 {
+    call(|| {
+        let w = w.as_mut().context("null writer")?;
+        let offsets = slice(offsets, offset_count)?;
+        let rs = slice(rows, n)?
+            .iter()
+            .map(|r| {
+                Ok(Alignment {
+                    read_idx: r.read_idx,
+                    read_length: r.read_length,
+                    read_start: r.read_start,
+                    read_end: r.read_end,
+                    strand: r.strand,
+                    chrom: r.chrom,
+                    start: r.start,
+                    end: r.end,
+                    mapping_quality: r.mapping_quality,
+                    identity: r.identity,
+                    filter_reason: text(r.filter_reason)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        w.write_reads_owned(rs, offsets)?;
         Ok(0)
     })
 }
@@ -278,10 +316,10 @@ pub unsafe extern "C" fn pqsio_reader_next(
         );
         match r.next_batch()? {
             None => return Ok(0),
-            Some(Batch::Pairs(rows)) => {
+            Some(Batch::Pairs(mut rows)) => {
                 let names = rows
-                    .iter()
-                    .map(|r| CString::new(r.read_id.as_str()))
+                    .iter_mut()
+                    .map(|r| CString::new(std::mem::take(&mut r.read_id)))
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 let rs = rows
                     .iter()
@@ -302,10 +340,10 @@ pub unsafe extern "C" fn pqsio_reader_next(
                     "pairs callback failed"
                 );
             }
-            Some(Batch::Concat(rows)) => {
+            Some(Batch::Concat(mut rows)) => {
                 let names = rows
-                    .iter()
-                    .map(|r| CString::new(r.filter_reason.as_str()))
+                    .iter_mut()
+                    .map(|r| CString::new(std::mem::take(&mut r.filter_reason)))
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 let rs = rows
                     .iter()
