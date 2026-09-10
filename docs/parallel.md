@@ -129,4 +129,3 @@ all fields at MAPQ 0, 1 and 20 and q0/q1 counts. Write time includes finish but
 excludes data generation and verification. Peak RSS is sampled before reading
 back, includes pre-generated inputs, and is not an isolated queue-memory metric.
 Inputs and results stay in ignored `tests/output`; no real genome data is used.
-See [acceptance results](parallel-acceptance.md) for measured outcomes.

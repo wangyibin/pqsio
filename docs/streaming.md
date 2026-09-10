@@ -235,9 +235,7 @@ a huge read requires read-sized staging/output where applicable. Changing an
 existing file's row-group layout is outside this change. No async prefetch,
 parallel reader, remote storage, format change or new dependency is introduced.
 
-The earlier [row-only measurements](streaming-results.md) describe the 0.0.6
-implementation before shared columnar staging; they are not measurements of this
-extension. No new throughput/zero-copy claim is made. Focused validation uses
+No throughput or zero-copy guarantee is made. Focused validation uses
 `pixi run test-streaming` and `pixi run test`: cross-representation equality and
 batch boundaries, all filter/boundary combinations, multi-group/shard fixtures,
 legacy IDs, empty/all-filtered streams, UTF-8/empty strings, wide coordinates,

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0 — 2026-09-10
+
+- Prepare the standalone Rust library, C/C++ headers and Python bindings for a
+  coordinated versioned source release.
+- Reorganize language and storage documentation and exclude local environments,
+  generated libraries, caches and build outputs from version control.
+- Retain Cargo.lock for reproducible builds. The library version is independent
+  of the pairs PQS 0.1.0 and concat PQS 0.2.0 storage format versions.
+
 ## 0.0.14 — 2026-09-09
 
 - Add bounded concat-to-pairs conversion for Rust, Python, and C/C++, with

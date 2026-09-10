@@ -15,3 +15,26 @@ __pycache__/
 
 # Local Pixi environments; pixi.lock is tracked.
 /.pixi/
+
+# Documentation builds and local tooling.
+/site/
+/.cache/
+/.venv-docs/
+/docs/*-benchmark.json
+/docs/*-results.json
+/docs/*-run.txt
+/docs/streaming-copy-*.json
+/docs/frame-columns-comparison.json
+
+# Generated native libraries, Python bytecode and packaging outputs.
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.o
+*.py[cod]
+*.log
+/build/
+/dist/
+/.venv/

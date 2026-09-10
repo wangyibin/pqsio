@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.0.14"
+__version__ = "0.1.0"
 
 @dataclass
 class Pair:

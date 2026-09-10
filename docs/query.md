@@ -4,7 +4,7 @@ This additive API leaves PQS 0.1.0 pairs / 0.2.0 concat files, the legacy APIs,
 ABI v1, traversal order and output coordinates unchanged. It adds no runtime
 dependency, database, CLI, read/alignment locator, parallel query or prefetch.
 An index may reduce data decoding; it is not a promise of lower latency or
-physical disk I/O. See [measured results](query-results.md).
+physical disk I/O.
 
 ```python
 import pqsio

@@ -236,6 +236,5 @@ Existing row-only shard packing is unchanged.
 - There is no end-to-end zero-copy claim, Arrow/NumPy integration, projection,
   asynchronous column writing, new CLI, cloud storage, or format upgrade.
 
-See [measured results](columnar-results.md) and the reproducible benchmark
-`../scripts/columnar_bench.py`. Small warm-cache results do not predict genome-scale
+Run the reproducible benchmark with `pixi run bench-columns`. Small warm-cache results do not predict genome-scale
 or cold-storage performance.
