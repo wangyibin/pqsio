@@ -164,6 +164,19 @@ int32_t pqsio_stream_destroy(pqsio_stream *);
  * Return 0 for a delivered report (including invalid/incomplete), -1 for an
  * invocation error. Report status must be examined separately. */
 typedef int32_t (*pqsio_json_callback)(const uint8_t *, size_t, void *);
+/* Advisory progress on the registering thread; total=0 means unknown.
+ * Stage bytes are borrowed; do not unwind/reenter. Callback/user must remain
+ * valid until cleared (NULL callback) on that same thread. */
+typedef void (*pqsio_progress_callback)(const uint8_t *, size_t, uint64_t, uint64_t, void *);
+void pqsio_set_progress_callback(pqsio_progress_callback, void *);
+int32_t pqsio_info_json(const char *, uint32_t, pqsio_json_callback, void *);
+/* q0 quality summary; min_mapq filters statistics. Same JSON lifetime/0,-1 contract. */
+int32_t pqsio_stats_json(const char *, uint8_t min_mapq, pqsio_json_callback, void *);
+/* quality: 0 q0, 1 q1. Inspect report status (valid/missing/invalid) on success. */
+int32_t pqsio_index_status_json(const char *, uint32_t quality, pqsio_json_callback, void *);
+/* New text export; NULL output means stdout. JSON options documented in browse.md.
+ * 0 success, -1 failure, -3 broken pipe. Callback failure retains published file. */
+int32_t pqsio_export_json(const char *, const char *, const char *, pqsio_json_callback, void *);
 /* concat2pairs: input, output, mode, chunk_size, batch_rows, min_mapq,
  * min_order, max_order (exclusive), callback, user. See README conversion.
  * Callback follows the JSON contract; failure after publication retains output. */
@@ -172,6 +185,26 @@ int32_t pqsio_convert_json(const char *, const char *, const char *, size_t,
 /* Same arguments, adding threads (>0) before callback/user. Ordered output. */
 int32_t pqsio_convert_parallel_json(const char *, const char *, const char *, size_t,
                           size_t, uint8_t, size_t, size_t, size_t, pqsio_json_callback, void *);
+/* Native BAM/PAF import extension (bam2pairs/bam2concat/paf2pairs/paf2concat).
+ * contigsizes and tmpdir may be NULL; max_order=SIZE_MAX is unlimited.
+ * include_secondary/five_prime must be 0/1. No samtools subprocess is used.
+ * Return 0 success, -2 invalid input/options, -1 I/O/decoder/writer failure.
+ * Callback contract and publication semantics are the same as convert. */
+int32_t pqsio_import_json(const char *input, const char *output, const char *mode,
+                         size_t chunk_size, size_t batch_rows, uint8_t min_mapq,
+                         size_t min_order, size_t max_order, size_t threads,
+                         const char *contigsizes, uint32_t include_secondary,
+                         const char *tmpdir, uint32_t five_prime,
+                         pqsio_json_callback, void *);
+/* Native pairs PQS/.pairs[.gz] to a new single-resolution .cool file.
+ * bin_size > 0; chunk_size is the input-record limit per sorting run.
+ * Nullable contigsizes is text-only; nullable tmpdir defaults to output parent.
+ * Return 0 success, -2 invalid data/options, -1 other error. Callback follows
+ * the JSON contract above; callback failure retains the published file. */
+int32_t pqsio_pairs2cool_json(const char *input, const char *output, uint64_t bin_size,
+                            size_t chunk_size, size_t batch_rows, uint8_t min_mapq,
+                            size_t threads, const char *contigsizes, const char *tmpdir,
+                            pqsio_json_callback, void *);
 int32_t pqsio_inspect_json(const char *, pqsio_json_callback, void *);
 int32_t pqsio_validate_json(const char *, uint32_t, size_t, pqsio_json_callback, void *);
 /* Additive ABI v1 merge capability. Inputs retain caller order, provenance is

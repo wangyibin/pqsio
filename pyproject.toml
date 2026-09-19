@@ -4,9 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pqsio"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python bindings for the pqsio Rust shared library"
 requires-python = ">=3.9"
+dependencies = ["rich-click>=1.9.7,<2"]
+
+[project.scripts]
+pqsio = "pqsio.cli:main"
 
 [project.urls]
 Repository = "https://github.com/wangyibin/pqsio"

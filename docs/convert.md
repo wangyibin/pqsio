@@ -1,5 +1,8 @@
 # Convert concat to pairs
 
+CLI: `pqsio convert sample.concat.pqs -o sample.pairs.pqs --min-mapq 1 --threads 4`.
+See [CLI setup and options](cli.md).
+
 ```python
 from pqsio import convert
 result = convert("sample.concat.pqs", "sample.pairs.pqs", mode="concat2pairs",
@@ -7,9 +10,13 @@ result = convert("sample.concat.pqs", "sample.pairs.pqs", mode="concat2pairs",
 print(result.to_dict())
 ```
 
-`convert` currently accepts concat PQS input and writes pairs PQS. Rust exposes
+The default `concat2pairs` mode accepts concat PQS input and writes pairs PQS. Rust exposes
 `convert(input, output, "concat2pairs", ConvertOptions::default())`; C/C++ can
-call `pqsio_convert_json` from `pqsio.h`. No text-format conversion is included.
+call `pqsio_convert_json` from `pqsio.h`. [BAM and PAF import modes](import.md)
+use the native Rust `import_alignments` API and the additive `pqsio_import_json`
+C ABI, also exposed through Python/CLI.
+The separate [pairs2cool mode](cool.md) accepts pairs PQS or text and writes
+single-resolution Cooler using Rust `pairs2cool` / C `pqsio_pairs2cool_json`.
 `threads=1` is the default. Conversion reads `ConcatColumns` and builds packed
 `PairColumns` directly, without materializing Alignment/Pair objects or allocating
 a String for each pair ID. Midpoints are calculated once per selected alignment.

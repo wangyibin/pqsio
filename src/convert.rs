@@ -71,6 +71,7 @@ pub fn convert(input: impl AsRef<Path>, output: impl AsRef<Path>, mode: &str,
     } else { None };
     let mut scratch = ExpandScratch::default();
     let mut output_reads = 0u64;
+    progress::emit("Expanding and writing pairs", 0, 0);
     while let Some(batch) = reader.next_columns()? {
         let ColumnBatch::Concat(rows) = batch else { unreachable!() };
         let count = if let Some(pool) = &mut pool {
@@ -80,7 +81,9 @@ pub fn convert(input: impl AsRef<Path>, output: impl AsRef<Path>, mode: &str,
                 |pairs| { writer.write_pairs_columns(pairs.as_view())?; Ok(pairs) })?
         };
         output_reads = output_reads.checked_add(count).context("read count overflow")?;
+        progress::emit("Expanding and writing pairs", output_reads, 0);
     }
+    progress::emit("Finalizing PQS", output_reads, 0);
     let counts = writer.finish()?;
     Ok(ConvertResult { output: output.as_ref().to_path_buf(), counts, output_reads })
 }

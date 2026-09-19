@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — 2026-09-19
+
+- Add a rich-click CLI with direct BAM/PAF/concat conversion commands and native
+  BAM/PAF decoding, grouping, compressed input and output.
+- Add Rust pairs-text/PQS-to-Cooler conversion, human-readable bin sizes,
+  projected PQS reads, bounded sorting and parallel pixel compression with
+  single-threaded HDF5 writing.
+- Add info, head/view, pairs/concat/TSV export, quality statistics and stage
+  progress, with corresponding Python and additive C APIs.
+- Add region query and q0/q1 index management commands. CLI regions use
+  CHROM:START-END; eligible queries automatically build missing indexes,
+  with explicit opt-out and rebuild controls.
+- Expand API/CLI documentation, regression tests and reproducible performance
+  scripts. Retain ABI v1 and the existing pairs/concat storage format versions.
+
 ## 0.1.0 — 2026-09-10
 
 - Prepare the standalone Rust library, C/C++ headers and Python bindings for a

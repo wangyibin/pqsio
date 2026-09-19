@@ -2,7 +2,8 @@
 
 Python and Rust expose an additive `subset` API. It creates a new dataset of
 exactly the input kind, using the native column pipeline and synchronous Writer.
-No runtime dependencies, disk format change, CLI or format conversion are added.
+No runtime dependencies, disk format change or format conversion are added.
+The [CLI](cli.md) exposes this API as `pqsio subset`.
 
 ```python
 import pqsio

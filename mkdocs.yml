@@ -47,6 +47,8 @@ nav:
   - Home: index.md
   - Get started:
       - Installation: installation.md
+      - Command-line interface: cli.md
+      - API overview: api.md
       - Python: python.md
       - Rust: rust.md
       - C and C++: native.md
@@ -55,11 +57,15 @@ nav:
       - Columnar I/O: columnar.md
       - Parallel writing: parallel.md
   - Dataset operations:
+      - Browse and export: browse.md
+      - Quality statistics: stats.md
       - Inspection and validation: inspection.md
       - Region queries: query.md
       - Subset: subset.md
       - Merge: merge.md
       - Concat to pairs: convert.md
+      - BAM and PAF import: import.md
+      - Pairs to Cooler: cool.md
       - Copy numbers: copy-numbers.md
   - Reference:
       - Storage and compatibility: storage.md

@@ -8,6 +8,133 @@ use std::{
     ptr,
 };
 thread_local! { static ERROR: RefCell<CString> = RefCell::new(CString::default()); }
+/// Scan q0 for quality statistics.
+/// # Safety
+/// Path and callback follow the pqsio_info_json contract.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_stats_json(path: *const c_char, min_mapq: u8, callback: Option<JsonCallback>, user: *mut c_void) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let json = statistics::stats(text(path)?, min_mapq)?.json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0, "stats callback failed");
+        Ok(0)
+    })
+}
+/// Check q0 (0) or q1 (1) index availability and source identity.
+/// # Safety
+/// Path and callback follow the pqsio_info_json contract.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_index_status_json(path: *const c_char, quality: u32, callback: Option<JsonCallback>, user: *mut c_void) -> i32 {
+    call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let quality = match quality { 0 => IndexQuality::Q0, 1 => IndexQuality::Q1, _ => bail!("quality must be 0 or 1") };
+        let json = query::index_status(text(path)?, quality)?.json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0, "index status callback failed");
+        Ok(0)
+    })
+}
+/// Register advisory progress on this thread; null clears it.
+/// # Safety
+/// Callback/user remain valid until cleared on the same thread. No reentry or
+/// unwinding; stage bytes are borrowed for the invocation only. total=0 is unknown.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_set_progress_callback(callback: Option<progress::Callback>, user: *mut c_void) {
+    progress::set(callback, user);
+}
+
+/// PQS summary, optionally scanning q0 statistics.
+/// # Safety
+/// Path and JSON callback follow pqsio_inspect_json's contract.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_info_json(path: *const c_char, stats: u32, callback: Option<JsonCallback>, user: *mut c_void) -> i32 {
+    call(|| {
+        ensure!(stats <= 1, "stats must be 0 or 1");
+        let cb = callback.context("null JSON callback")?;
+        let json = presentation::info(text(path)?, stats != 0)?.json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0, "info callback failed");
+        Ok(0)
+    })
+}
+
+/// Stream text to a new file (null output means stdout). -3 means broken pipe.
+/// # Safety
+/// Required strings are NUL-terminated UTF-8; callback follows JSON contracts.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_export_json(input: *const c_char, output: *const c_char, options: *const c_char, callback: Option<JsonCallback>, user: *mut c_void) -> i32 {
+    let mut broken_pipe = false;
+    let status = call(|| {
+        let cb = callback.context("null JSON callback")?;
+        let options = text(options)?;
+        ensure!(options.len() <= 16 * 1024 * 1024, "export options exceed 16 MiB");
+        let options = presentation::parse_options(&options)?;
+        let output = if output.is_null() { None } else { Some(PathBuf::from(text(output)?)) };
+        let result = presentation::export(text(input)?, output.as_deref(), options).inspect_err(|e| {
+            broken_pipe = e.chain().any(|e| e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe));
+        })?;
+        let json = result.json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0, "export completed, but result callback failed; any published file is retained");
+        Ok(0)
+    });
+    if status == -1 && broken_pipe { -3 } else { status }
+}
+/// Native pairs PQS/text to Cooler. Callback failures retain the completed file.
+/// # Safety
+/// Input/output are NUL-terminated UTF-8. contigsizes/tmpdir may be null;
+/// callback/user follow the JSON callback contract. Inputs remain immutable.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_pairs2cool_json(
+    input: *const c_char, output: *const c_char, bin_size: u64,
+    chunk_size: usize, batch_rows: usize, min_mapq: u8, threads: usize,
+    contigsizes: *const c_char, tmpdir: *const c_char,
+    callback: Option<JsonCallback>, user: *mut c_void,
+) -> i32 {
+    let mut invalid_input = false;
+    let status = call(|| {
+        let callback = callback.context("null JSON callback")?;
+        let result = pairs2cool(text(input)?, text(output)?, CoolOptions {
+            bin_size, chunk_size, batch_rows, min_mapq, threads,
+            contigsizes: if contigsizes.is_null() { None } else { Some(text(contigsizes)?.into()) },
+            tmpdir: if tmpdir.is_null() { None } else { Some(text(tmpdir)?.into()) },
+        }).inspect_err(|e| { invalid_input = e.is::<cool::InvalidInput>(); })?;
+        let json = result.to_json();
+        ensure!(callback(json.as_ptr(), json.len(), user) == 0,
+            "pairs2cool succeeded and output was published, but result callback failed");
+        Ok(0)
+    });
+    if status == -1 && invalid_input { -2 } else { status }
+}
+/// Native BAM/PAF import. -2 denotes invalid input/options; -1 denotes I/O,
+/// decoding or writer failure. Callback failure retains published output.
+/// # Safety
+/// Required strings are valid NUL-terminated UTF-8. contigsizes/tmpdir may be
+/// null. Callback/user follow the other JSON APIs; inputs must not be mutated.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_import_json(
+    input: *const c_char, output: *const c_char, mode: *const c_char,
+    chunk_size: usize, batch_rows: usize, min_mapq: u8, min_order: usize,
+    max_order: usize, threads: usize, contigsizes: *const c_char,
+    include_secondary: u32, tmpdir: *const c_char, five_prime: u32,
+    callback: Option<JsonCallback>, user: *mut c_void,
+) -> i32 {
+    let mut invalid_input = false;
+    let result = call(|| {
+        let cb = callback.context("null JSON callback")?;
+        ensure!(include_secondary <= 1 && five_prime <= 1, "boolean flags must be 0 or 1");
+        let result = import_alignments(text(input)?, text(output)?, &text(mode)?, ImportOptions {
+            chunk_size, batch_rows, min_mapq, min_order: Some(min_order),
+            max_order: if max_order == usize::MAX { None } else { Some(max_order) }, threads,
+            contigsizes: if contigsizes.is_null() { None } else { Some(text(contigsizes)?.into()) },
+            include_secondary: include_secondary != 0,
+            tmpdir: if tmpdir.is_null() { None } else { Some(text(tmpdir)?.into()) },
+            five_prime: five_prime != 0,
+        }).inspect_err(|error| { invalid_input = error.is::<import::InvalidInput>(); })?;
+        let json = result.to_json();
+        ensure!(cb(json.as_ptr(), json.len(), user) == 0,
+            "conversion succeeded and output was published, but result callback failed");
+        Ok(0)
+    });
+    if result == -1 && invalid_input { -2 } else { result }
+}
 /// Convert concat PQS to pairs PQS. Callback failure retains published output.
 /// # Safety
 /// Strings must be valid NUL-terminated UTF-8; callback/user follow JSON rules.

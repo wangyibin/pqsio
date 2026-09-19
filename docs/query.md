@@ -2,9 +2,76 @@
 
 This additive API leaves PQS 0.1.0 pairs / 0.2.0 concat files, the legacy APIs,
 ABI v1, traversal order and output coordinates unchanged. It adds no runtime
-dependency, database, CLI, read/alignment locator, parallel query or prefetch.
+dependency, database, read/alignment locator, parallel query or prefetch.
 An index may reduce data decoding; it is not a promise of lower latency or
 physical disk I/O.
+
+## CLI
+
+```sh
+pqsio index build sample.pqs                    # q0 and q1, independently
+pqsio index status sample.pqs
+pqsio index rebuild sample.pqs --quality q1
+pqsio query sample.pqs --region chr1:100000-200000 --min-mapq 30 \
+    --index require --show-stats
+pqsio query sample.concat.pqs --region chr1:100000-200000 \
+    --mode complete-reads --format concat -o selected.concat.gz
+```
+
+`query` requires at least one repeatable `--region CHROM:START-END` and emits
+all matching rows as TSV by default. `-o -` is stdout; file targets follow export's
+new-file/atomic-publication rules. Options include `--columns`, `--min-mapq`,
+`--pairs-mode either|both`, `--index auto|off|require`, `--format auto|pairs|concat|tsv`,
+`--no-header`, `-t/--threads` (compression workers), `-n/--limit` (unlimited by
+default), and `--progress/--no-progress`. Coordinates and index semantics are
+the same as the API below, with CLI-only automatic construction described next. `--show-stats` emits native query diagnostics as JSON
+on stderr; data stays on stdout. File export reports include `query_stats`.
+An early row limit can split concat reads and leaves `complete=false` unless
+the reader actually reached EOF.
+
+With the CLI default `--index auto --build-index`, a missing index is built in
+Rust before querying: q0 for `--min-mapq 0`, q1 for positive MAPQ when eligible.
+Only the selected partition is built. A first query therefore scans that
+partition to construct its reusable index. Existing valid indexes are reused;
+invalid/stale indexes are not replaced automatically (auto falls back to scanning).
+Use `index rebuild` to replace those explicitly. Complete-read and shard-local
+concat queries keep their mandatory sequential scan and do not build an index.
+
+`--no-build-index` keeps auto's read-only fallback behavior. `--index off` scans
+without building; `--index require` still errors when its index is unavailable.
+Automatic construction needs write access to the PQS sidecar directory. If it
+fails (for example, a read-only directory or another builder's lock), query
+stops before data output with instructions to disable construction and scan.
+Python/Rust APIs retain their read-only defaults; Python `export`/`view` and
+Rust `ExportOptions` can opt in with `auto_index=True` / `auto_index: true`.
+
+Concat's `--mode complete-reads` includes every alignment of each qualifying
+read, including those outside the region or below the MAPQ threshold. It uses
+a sequential q0 scan even with an index. Default matching mode returns only
+matching alignments. The mode option is concat-only.
+
+`index build`, `index status` and `index rebuild` accept
+`--quality q0|q1|both` (CLI default: both) and progress flags. `build --rebuild`
+is equivalent to `rebuild`. Building scans record pages. Status checks current
+source identities/footers and index checksums without decoding record pages,
+returning `valid`, `missing` or `invalid` plus the reason per quality. Successful
+status reporting exits 0 even for missing/invalid indexes; source-reading errors
+exit nonzero. `valid` describes index availability, not whether a particular
+query can use it for acceleration.
+
+Building both qualities runs sequentially and is not one transaction: a completed
+q0 build remains if q1 fails. Existing indexes require explicit rebuilding.
+Older generations remain available to active readers; these commands do not
+delete generations or source data. Keep the source PQS immutable during use.
+
+Python also exposes `index_status(path, quality="q0").to_dict()`; the native
+entry points are Rust `query::index_status(path, IndexQuality)` and C
+`pqsio_index_status_json(path, quality, callback, user)` (quality 0 or 1).
+Its C return value is 0 for report delivery or -1 for failure; inspect `status`
+inside the report. Python `export`/`view` accept `index` and `filter_mode` when
+using regions, so query text still goes directly from Rust to its output.
+
+## Reader API
 
 ```python
 import pqsio

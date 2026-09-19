@@ -3,7 +3,7 @@
 These additive Rust/Python APIs are read-only. They do not migrate metadata,
 repair files, modify datasets, or change disk schemas/dependencies. C consumers
 can use the JSON callback functions in `pqsio.h`; C++ can use the same C ABI.
-No CLI is added.
+The [CLI](cli.md) exposes these APIs as `pqsio inspect` and `pqsio validate`.
 
 ```python
 import pqsio

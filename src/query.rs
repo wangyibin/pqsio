@@ -305,6 +305,44 @@ fn read_num(r: &mut impl Read) -> Result<u64> {
 pub fn build_index(path: impl AsRef<Path>, rebuild: bool) -> Result<()> {
     build_index_for_quality(path, IndexQuality::Q0, rebuild)
 }
+/// Check one quality's index against current source footers and index checksums.
+/// No record pages are decoded. Invalid source data remains an error.
+pub fn index_status(path: impl AsRef<Path>, quality: IndexQuality) -> Result<Value> {
+    let path = path.as_ref();
+    progress::emit("Checking index", 0, 0);
+    let source = quality.source(path)?;
+    let snap = snapshot(path, &source)?;
+    let (status, reason, bytes) = match IndexCursor::open(path, &snap, quality) {
+        Ok((_, bytes)) => ("valid", Value::Null, bytes),
+        Err(e) => {
+            let missing = fs::symlink_metadata(quality.root(path).join("CURRENT"))
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
+            (if missing { "missing" } else { "invalid" }, Value::from(format!("{e:#}").as_str()), 0)
+        }
+    };
+    Ok(obj([
+        ("quality", Value::from(quality.name())),
+        ("status", Value::from(status)), ("reason", reason),
+        ("total_row_groups", snap.total.into()), ("manifest_bytes", bytes.into()),
+    ]))
+}
+// Called only after QueryReader has validated source/options. Semantic scan
+// fallbacks (complete reads, shard-local IDs) do not benefit from construction.
+pub(crate) fn build_missing_index(path: &Path, stats: &QueryStats) -> Result<bool> {
+    if stats.index_used || !stats.fallback_reason.as_deref().is_some_and(|reason|
+        reason.starts_with(&format!("{} index unavailable:", stats.source_quality))) {
+        return Ok(false);
+    }
+    let quality = if stats.source_quality == "q1" { IndexQuality::Q1 } else { IndexQuality::Q0 };
+    match fs::symlink_metadata(quality.root(path).join("CURRENT")) {
+        Ok(_) => return Ok(false), // Stale/corrupt indexes require explicit rebuilding.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(e) => return Err(e.into()),
+    }
+    build_index_for_quality(path, quality, false)
+        .context("automatic index build failed; use --no-build-index or --index off to scan without building")?;
+    Ok(true)
+}
 /// Build one independent q0/q1 index. The legacy build_index remains q0-only.
 pub fn build_index_for_quality(
     path: impl AsRef<Path>,
@@ -319,6 +357,7 @@ fn build_impl(
     rebuild: bool,
     before_publish: &mut dyn FnMut() -> Result<()>,
 ) -> Result<()> {
+    progress::emit("Building region index", 0, 0);
     let source = quality.source(path)?;
     let before = snapshot(path, &source)?;
     let root = quality.root(path);
@@ -355,6 +394,7 @@ fn build_impl(
     let result = (|| {
         let mut parts = vec![];
         for (s, file) in before.files.iter().enumerate() {
+            progress::emit("Building region index", s as u64, before.files.len() as u64);
             let mut reader = ParquetReader::new(File::open(file)?);
             let metadata = reader.get_metadata()?.clone();
             let part = temp.join(format!("{s}.rg"));

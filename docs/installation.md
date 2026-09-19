@@ -11,8 +11,14 @@ pixi run lint           # strict Clippy, using dev-release
 
 `pixi.toml` manages the Rust 1.91 toolchain, C/C++ compilers and build tools,
 plus Python 3.11 and Polars 0.20.29 for tests only. Rust library dependencies
-remain in `Cargo.toml` / `Cargo.lock`, including Polars 0.49.1. The base Python
-package still has no third-party runtime dependencies. `pixi.lock` pins the
+remain in `Cargo.toml` / `Cargo.lock`, including Polars 0.49.1, flate2, gzp,
+rust-htslib, hdf5 and hdf5-sys. HDF5 is built statically with zlib support for
+native Cooler writing. The native build also compiles HTSlib and compression libraries; rust-htslib
+requires libclang and matching Clang resource headers for its generated bindings;
+the Pixi build environment supplies both and configures `LIBCLANG_PATH`. The base Python
+package installs `rich-click>=1.9.7,<2` for the CLI; the storage binding itself
+uses the standard library. The Pixi test environment pins rich-click 1.9.7,
+matching CPhasing's CLI. `pixi.lock` pins the
 development environments; `.pixi/` is local and ignored by Git.
 
 Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
@@ -20,9 +26,21 @@ Pixi sets `PYTHONPATH` and `PQSIO_LIBRARY` for the local package and
 `pixi run python` for an interpreter configured to use the development library.
 The standalone test task does not require the sibling CPhasing checkout.
 
+Use `pixi run pqsio --help` for the CLI directly from the source checkout.
+Installing the Python package registers the standalone `pqsio` command; see
+[CLI installation and examples](cli.md). Both entry points use the same native library.
+
 Individual tasks are `test-rust`, `test-python`, `test-columns`, `test-native`,
 `test-parallel`, `test-streaming`, `test-query`, `test-inspection`, `test-merge`,
-`test-subset`, `test-copy-numbers`, `test-convert`, and `test-decode`. Python/native tests build the shared library first. `pixi run bench-columns --rows
+`test-subset`, `test-copy-numbers`, `test-convert`, `test-cli`, `test-import`,
+`test-cool`, and `test-decode`.
+BAM conversion itself needs no samtools. Real BAM fixture generation in the
+import tests requires an external `samtools` executable; those tests skip explicitly
+when unavailable. Cooler interoperability tests use an independent Python with
+`cooler` and `h5py`; set `PQSIO_COOLER_TEST_PYTHON=/path/to/python pixi run test-cool`.
+Those interoperability checks skip explicitly when the optional consumer is
+unavailable; conversion itself needs neither Python package.
+Python/native tests build the shared library first. `pixi run bench-columns --rows
 80000 --repetitions 5`, `pixi run bench-streaming` and `pixi run bench-query`
 explicitly run synthetic benchmarks; normal builds/tests do not
 run them. `pixi run build-release` is reserved
