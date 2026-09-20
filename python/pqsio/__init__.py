@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 import os
 import threading
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 @dataclass
 class Pair:
@@ -93,6 +93,11 @@ def _library():
     }
     if hasattr(lib, "pqsio_parallel_open"):
         signatures.update(parallel_signatures)
+    for name in ("writer_open", "parallel_open"):
+        extended = name + "_with_compression"
+        if hasattr(lib, "pqsio_" + extended):
+            args, result = signatures[name]
+            signatures[extended] = (args[:-1] + [C.c_char_p, C.POINTER(C.c_int32), args[-1]], result)
     for name, (args, result) in signatures.items():
         if name == "write_reads" and not hasattr(lib, "pqsio_write_reads"):
             continue  # Existing methods still work with ABI v1 from pqsio 0.0.1.
@@ -162,13 +167,41 @@ def _decode(row, cls):
         values[f.name] = value
     return cls(**values)
 
+def _compression_options(compression, level):
+    ranges = {"zstd": (1, 22), "gzip": (0, 9), "brotli": (0, 11),
+              "uncompressed": None, "snappy": None, "lz4": None}
+    if not isinstance(compression, str) or compression not in ranges:
+        raise ValueError("compression must be uncompressed, zstd, gzip, brotli, snappy or lz4")
+    if level is not None:
+        bounds = ranges[compression]
+        if bounds is None:
+            raise ValueError(f"compression {compression!r} does not accept a level")
+        if isinstance(level, bool) or not isinstance(level, int) or not bounds[0] <= level <= bounds[1]:
+            raise ValueError(f"{compression} compression_level must be an integer in {bounds[0]}..{bounds[1]}")
+    return _utf8(compression), C.c_int32(level) if level is not None else None
+
+
+def _open_writer(lib, name, args, compression, level, handle):
+    codec, native_level = _compression_options(compression, level)
+    if compression == "zstd" and level is None:
+        # Keep the old constructor usable with existing ABI v1 libraries.
+        return _check(getattr(lib, "pqsio_" + name)(*args, C.byref(handle)))
+    extended = "pqsio_" + name + "_with_compression"
+    if not hasattr(lib, extended):
+        raise RuntimeError("Native pqsio library lacks compression selection; rebuild/update the shared library")
+    return _check(getattr(lib, extended)(*args, codec,
+                  C.byref(native_level) if native_level is not None else None, C.byref(handle)))
+
+
 class _Writer:
-    def __init__(self, path, contigs, chunk_size=1_000_000, *, copy_numbers=None):
+    def __init__(self, path, contigs, chunk_size=1_000_000, *, copy_numbers=None,
+                 compression="zstd", compression_level=None):
         self._handle = C.c_void_p()
         self._lib = _library()
         entries = list(contigs.items()) if hasattr(contigs, "items") else list(contigs)
         cs = (_Contig * len(entries))(*[_Contig(_utf8(n), _uint(s, 64)) for n, s in entries])
-        _check(self._lib.pqsio_writer_open(_utf8(os.fspath(path)), self._kind, cs, len(cs), _uint(chunk_size, C.sizeof(C.c_size_t)*8), C.byref(self._handle)))
+        args = (_utf8(os.fspath(path)), self._kind, cs, len(cs), _uint(chunk_size, C.sizeof(C.c_size_t)*8))
+        _open_writer(self._lib, "writer_open", args, compression, compression_level, self._handle)
         if copy_numbers is not None:
             try:
                 from .copy_numbers import _writer_set
@@ -335,7 +368,8 @@ class ParallelWriter(_Writer):
     ends a shard; max_batch_bytes bounds native input, not Python objects/RSS.
     """
     def __init__(self, path, contigs, kind="pairs", chunk_size=1_000_000,
-                 workers=2, queue_capacity=4, max_batch_bytes=64 * 1024 * 1024):
+                 workers=2, queue_capacity=4, max_batch_bytes=64 * 1024 * 1024,
+                 *, compression="zstd", compression_level=None):
         self._handle = C.c_void_p()
         self._lib = _library()
         if not hasattr(self._lib, "pqsio_parallel_open"):
@@ -347,8 +381,8 @@ class ParallelWriter(_Writer):
         cs = (_Contig * len(entries))(*[_Contig(_utf8(n), _uint(s, 64)) for n, s in entries])
         width = C.sizeof(C.c_size_t) * 8
         values = [_uint(v, width) for v in (chunk_size, workers, queue_capacity, max_batch_bytes)]
-        _check(self._lib.pqsio_parallel_open(_utf8(os.fspath(path)), self._kind, cs, len(cs),
-                                            *values, C.byref(self._handle)))
+        args = (_utf8(os.fspath(path)), self._kind, cs, len(cs), *values)
+        _open_writer(self._lib, "parallel_open", args, compression, compression_level, self._handle)
 
     def producer(self):
         return Producer(self)

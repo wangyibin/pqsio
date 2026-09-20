@@ -38,6 +38,8 @@ pub mod streaming;
 pub use streaming::{ConcatFilter, ReadBoundary, ReadOptions, StreamingReader};
 pub mod parallel;
 pub use parallel::{ParallelOptions, ParallelWriter, Producer};
+pub mod compression;
+pub use compression::Compression;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -96,6 +98,7 @@ pub struct Writer {
     target: PathBuf,
     staging: PathBuf,
     chunk_size: usize,
+    compression: Compression,
     columns: Option<ColumnBatch>,
     pairs: Vec<Pair>,
     concat: Vec<Alignment>,
@@ -113,6 +116,16 @@ impl Writer {
         kind: Kind,
         contigs: Vec<Contig>,
         chunk_size: usize,
+    ) -> Result<Self> {
+        Self::create_with_compression(path, kind, contigs, chunk_size, Compression::default())
+    }
+    /// Create a dataset with explicit compression for both quality partitions.
+    pub fn create_with_compression(
+        path: impl AsRef<Path>,
+        kind: Kind,
+        contigs: Vec<Contig>,
+        chunk_size: usize,
+        compression: Compression,
     ) -> Result<Self> {
         ensure!(chunk_size > 0, "chunk_size must be positive");
         ensure!(!contigs.is_empty(), "at least one contig is required");
@@ -153,6 +166,7 @@ impl Writer {
             target,
             staging,
             chunk_size,
+            compression,
             columns: None,
             pairs: vec![],
             concat: vec![],
@@ -338,6 +352,7 @@ impl Writer {
     fn flush_inner(&mut self) -> Result<()> {
         let job = parallel::Shard {
             columns: None,
+            compression: self.compression,
             kind: self.kind,
             contigs: self.contigs.clone(),
             staging: self.staging.clone(),

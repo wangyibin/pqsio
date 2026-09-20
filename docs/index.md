@@ -1,37 +1,63 @@
 # pqsio
 
-pqsio provides Rust storage for **pairs PQS 0.1.0** and **alignment-level concat
-PQS 0.2.0**, with C, C++17, ctypes-based Python bindings and a rich-click CLI. It shares
-CPhasing’s storage conventions while remaining independent of its algorithms.
+Read, write and convert genomic contacts with a Python API and a native Rust CLI.
+PQS supports **selective column reads, fast quality filtering and efficient
+compressed writing**. In our [one-million-record benchmark](pqs-format.md#performance-benchmark),
+default PQS delivered **20.87–33.50× faster MAPQ ≥ 30 counts** and
+**4.71–6.25× faster writes** than gzip text.
 
-## Get started
+**Pairs PQS** stores pairwise contacts; **concat PQS** stores alignments grouped by read.
+A `.pqs` dataset is a directory. See [PQS format](pqs-format.md) for its
+layout, fields and coordinate conventions.
 
-1. [Build the native library](installation.md) in the Pixi development environment.
-2. Use the [CLI](cli.md) or choose a language in the [API overview](api.md):
-   [Python](python.md), [Rust](rust.md) or [C/C++](native.md).
-3. Check the [coordinate, ID and publication contracts](storage.md).
+## 1. Install
 
-## Read and write
+With [Pixi](https://pixi.sh) installed, run on Linux:
 
-- [Streaming reads](streaming.md): control batches and complete-read boundaries.
-- [Columnar I/O](columnar.md): typed columns, packed IDs and ownership rules.
-- [Parallel writing](parallel.md): worker queues, ordering and memory bounds.
+```sh
+git clone https://github.com/wangyibin/pqsio.git
+cd pqsio
+pixi install --locked
+pixi run build
+```
 
-## Work with datasets
+Already have the source? Start from `cd pqsio`.
+Pixi configures Python and the native library for you.
+See [installation](installation.md) for use in another Python environment.
 
-- [Inspection and validation](inspection.md)
-- [Region queries and indexes](query.md)
-- [Subset export](subset.md)
-- [Dataset merge](merge.md)
-- [Concat-to-pairs conversion](convert.md)
-- [BAM/PAF import to pairs or concat](import.md)
-- [Pairs PQS/text to Cooler](cool.md)
-- [Copy-number metadata](copy-numbers.md)
+## 2. Call the Python API
 
-## Development
+Save this as `example.py` and run `pixi run python example.py` from the repository.
+It creates a tiny dataset, so no input files are needed.
 
-[Validation commands](development.md) and [documentation maintenance](documentation.md)
-cover local development. Operation pages link to focused performance reports;
-benchmark scripts are opt-in developer tools, with raw outputs kept locally.
-Batch and shard row targets are not strict process-memory limits. Consult each
-API’s memory and ownership contract; no whole-genome throughput is guaranteed.
+```python
+from pqsio import Pair, PairsWriter, Reader
+
+with PairsWriter("sample.pairs.pqs", contigs={"chr1": 1000}) as writer:
+    writer.write_batch([
+        Pair(read_id="read1", chrom1=0, pos1=10, chrom2=0, pos2=200,
+             strand1="+", strand2="-", mapq=60),
+    ])
+
+with Reader("sample.pairs.pqs") as reader:
+    for batch in reader.iter_batches():
+        print(batch)
+```
+
+`chrom1=0` and `chrom2=0` refer to the first contig (`chr1`); pair positions
+are 1-based. The output directory must not already exist.
+See the [Python API](python.md) for conversion, concat reads and filtering.
+
+## 3. Use the CLI
+
+Inspect and export the dataset created above:
+
+```sh
+pixi run pqsio info sample.pairs.pqs
+pixi run pqsio head sample.pairs.pqs -n 10
+pixi run pqsio export sample.pairs.pqs -o sample.pairs.gz
+pixi run pqsio --help
+```
+
+See the [CLI guide](cli.md) for BAM/PAF conversion, Cooler output and region queries.
+For other languages, see [Rust](rust.md) or [C/C++](native.md).

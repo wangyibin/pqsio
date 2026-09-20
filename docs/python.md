@@ -1,153 +1,140 @@
 # Python API
 
-Use `PYTHONPATH=pqsio/python` from the workspace root, or install this directory
-as a Python package. The Python package does **not** compile or bundle the
-native library; set `PQSIO_LIBRARY` to the absolute path of the built `.so`.
-The storage bindings use the standard library. Installing the package also
-installs `rich-click` and its dependencies for the command-line interface.
+Complete [installation](installation.md), save examples in a `.py` file, then
+run `pixi run python your_script.py` from the repository. If installed in your
+own Python environment, use `python your_script.py`.
 
-```python
-from pqsio import Pair, Alignment, PairsWriter, ConcatWriter, Reader
+## Convert files
 
-with PairsWriter("sample.pairs.pqs", contigs={"chr1": 1000}) as writer:
-    writer.write_batch([Pair("read1", 0, 10, 0, 200, "+", "-", 60)])
-
-with ConcatWriter("sample.concat.pqs", contigs={"chr1": 1000}) as writer:
-    writer.write_read([
-        Alignment(1, 200, 0, 100, "+", 0, 10, 110, 60, 0.99),
-        Alignment(1, 200, 100, 200, "-", 0, 500, 600, 20, 0.98),
-    ])
-
-with Reader("sample.concat.pqs", min_mapq=1) as reader:
-    print(reader.kind, reader.contigs)
-    for alignments in reader.iter_reads():
-        print(alignments)
-```
-
-`PairsReader` and `ConcatReader` additionally check the dataset kind.
-`iter_batches()` yields one Parquet shard at a time. Python objects are copies;
-no borrowed native pointer escapes into the public API.
-
-## Dataset operations
-
-The [API overview](api.md) maps Python calls to Rust and C entry points.
-The public conversion signature is:
-
-```python
-convert(input, output, mode='concat2pairs', *, chunk_size=1_000_000,
-        batch_rows=65_536, min_mapq=0, min_order=None, max_order=None,
-        threads=1, contigsizes=None, include_secondary=False, samtools=None,
-        tmpdir=None, pair_position=None, bin_size=None)
-```
-
-Paths accept strings or path-like objects. Results are `ConvertResult` objects;
-call `.to_dict()` for an independent dictionary copy. `samtools` is an obsolete
-compatibility parameter: leave it as `None`; supplying it to a BAM import fails.
+Use `pqsio.convert(input, output, mode=...)`. Replace the input filenames with
+your own files; outputs must be new paths with existing parent directories.
 
 ```python
 import pqsio
 
-# Direct BAM/PAF import; choose the desired output format.
-report = pqsio.convert("hic.bam", "hic.pairs.pqs", mode="bam2pairs",
-                       min_mapq=1, threads=4).to_dict()
-report = pqsio.convert("reads.paf.gz", "reads.concat.pqs", mode="paf2concat",
-                       threads=4).to_dict()
+# Hi-C or long-read BAM → pairs PQS
+result = pqsio.convert("hic.bam", "hic.pairs.pqs", mode="bam2pairs",
+                       min_mapq=30, threads=4)
+print(result.to_dict())
 
-# Direct PQS read and native Cooler output: no Python record iteration.
-report = pqsio.convert("hic.pairs.pqs", "hic.10k.cool", mode="pairs2cool",
-                       bin_size="10k", min_mapq=1, threads=4,
-                       chunk_size=4_000_000).to_dict()
-print(report["nbins"], report["nnz"], report["sum"])
+# Pairs PQS → Cooler contact matrix, with 10 kb bins
+pqsio.convert("hic.pairs.pqs", "hic.10k.cool", mode="pairs2cool",
+              bin_size="10k", threads=4)
 ```
 
-| Keyword | Default | Applicability |
-| --- | --- | --- |
-| `mode` | `concat2pairs` | Six modes listed in the [API overview](api.md) |
-| `min_mapq` | `0` | Integer 0–255; alignment filter for imports/concat, pair filter for Cooler |
-| `min_order` | `None` | Resolves to 2 for pairs output, 1 for concat imports |
-| `max_order` | `None` | Exclusive upper order limit; `None` means unlimited |
-| `threads` | `1` | Positive worker limit per stage |
-| `chunk_size`, `batch_rows` | `1_000_000`, `65_536` | Positive buffering/shard/sort targets; see operation-specific memory rules |
-| `contigsizes` | `None` | Optional sizes/FAI for PAF or pairs text; BAM/PQS use their dictionaries |
-| `include_secondary` | `False` | BAM/PAF imports only |
-| `pair_position` | `None` | `bam2pairs`/`paf2pairs`: resolves to `leftmost`; alternative `five-prime` |
-| `tmpdir` | `None` | BAM/PAF and Cooler scratch; defaults to output parent |
-| `bin_size` | `None` | Required only for `pairs2cool`; integer bp or unit string |
+| `mode` | Input → output |
+| --- | --- |
+| `bam2pairs` | BAM → pairs PQS |
+| `bam2concat` | BAM → concat PQS |
+| `paf2pairs` | PAF or `.paf.gz` → pairs PQS |
+| `paf2concat` | PAF or `.paf.gz` → concat PQS |
+| `concat2pairs` | concat PQS → pairs PQS |
+| `pairs2cool` | pairs PQS or pairs text → `.cool`; requires `bin_size` |
 
-`pairs2cool` rejects order, secondary-alignment and pair-position options.
-Python numeric `bin_size` must be an integer (not a float or bool); use a
-string such as `"1.5m"` for fractional units. See [Cooler rules](cool.md) and
-[BAM/PAF rules](import.md) before choosing a conversion route.
+Always specify `mode` in your scripts; the default is `concat2pairs`, regardless
+of the filename. Common options are `min_mapq` (default `0`) and `threads`
+(default `1`). Cooler output contains raw counts, without balancing.
+See [conversion details](api.md#conversion-modes-and-coordinates) for coordinates
+and mode-specific rules.
 
-Other high-level functions return report objects with `.to_dict()`:
+## Read and write pairs
+
+This example needs no input files. Run it with a new output path each time.
 
 ```python
-inspect(path)
-validate(path, level='quick', *, max_issues=100)
-subset(input, output, *, min_mapq=None, chroms=None, regions=None,
-       read_ids=None, pairs_mode=None, mode=None, batch_rows=65_536,
-       chunk_size=1_000_000, provenance=True)
-merge(inputs, output, *, chunk_size=1_000_000, batch_rows=65_536,
-      provenance=True)
-```
+from pqsio import Pair, PairsWriter, Reader
 
-Example calls:
-
-```python
-overview = pqsio.inspect("hic.pairs.pqs")
-validation = pqsio.validate("hic.pairs.pqs", level="full", max_issues=100)
-print(validation.status)  # valid, invalid, or incomplete; inspect this explicitly
-selected = pqsio.subset("hic.pairs.pqs", "selected.pqs",
-                         regions=[("chr1", 0, 100_000)], min_mapq=1)
-merged = pqsio.merge(["first.pqs", "second.pqs"], "merged.pqs")
-```
-
-Region coordinates are 0-based half-open. See [subset](subset.md),
-[merge](merge.md), and [validation](inspection.md) for complete signatures and
-selection/report semantics. `inspect` and `validate` accept PQS directories,
-not `.cool` files.
-
-Invalid Python arguments raise `ValueError`; native operation failures may
-raise `RuntimeError`, and library-loading failures may raise `OSError`.
-BAM/PAF and Cooler bindings also map native invalid-input errors to `ValueError`.
-A validation report can have `invalid` or `incomplete` status without raising.
-
-## Bulk concat writes (0.0.2)
-
-```python
-# Every inner list contains a complete read; read IDs increase across calls.
-with ConcatWriter("bulk.concat.pqs", contigs={"chr1": 1000}) as writer:
-    writer.write_reads([
-        [Alignment(1, 100, 0, 50, "+", 0, 10, 60, 30, 0.99)],
-        [Alignment(2, 100, 0, 50, "-", 0, 100, 150, 60, 0.98)],
+with PairsWriter("sample.pairs.pqs", contigs={"chr1": 1000}) as writer:
+    writer.write_batch([
+        Pair(read_id="read1", chrom1=0, pos1=10, chrom2=0, pos2=200,
+             strand1="+", strand2="-", mapq=60),
     ])
-# Alternatively: writer.write_batch(flat_alignments, [0, end_read1, end_read2, ...])
+
+with Reader("sample.pairs.pqs", min_mapq=30) as reader:
+    print(reader.kind, reader.contigs)
+    for batch in reader.iter_batches():
+        for pair in batch:
+            print(pair.read_id, pair.pos1, pair.pos2)
 ```
 
-The caller controls batch size; `write_reads` materializes its iterable.
-All offsets and reads are validated before accepting a batch. Empty batches
-use offsets `[0]`; empty reads are rejected. Input validation errors accept no
-records from that batch; storage failures still poison/abort the staged output.
+Contig IDs are zero-based indexes into `contigs`: `0` means `chr1` here.
+Pair positions are **1-based**. The writer finishes the dataset when its `with`
+block exits successfully. `Reader.iter_batches()` returns one shard at a time;
+use [StreamingReader](streaming.md) when you need smaller batches.
 
-The new Python package remains usable with an old ABI v1 library for existing
-methods; bulk writes report that a >=0.0.2 library is required. New C/C++ callers
-use `pqsio_write_reads` / `Writer::write_reads(rows, offsets)`.
+## Read and write concat
 
-Bulk submission reduces native call overhead. It is not automatically faster
-for Python dataclass inputs: fixed-field encoding already improves the existing
-single-read method.
+Write all alignments of a read together. Each new read needs a strictly
+increasing integer `read_idx`; alignment intervals are **0-based, half-open**.
 
-## Summaries and text export
+```python
+from pqsio import Alignment, ConcatWriter, Reader
 
-`pqsio.info(path, stats=False)` returns a metadata/footer summary; `stats=True`
-scans q0 for MAPQ and concat read counts. `pqsio.view(path, limit=100)` previews
-TSV on OS stdout; `pqsio.export(path, output, threads=4)` writes pairs/concat/TSV,
-compressed for `.gz`/`.mgz`. Record handling stays in Rust. Each returns a report
-with `.to_dict()`. See [browse and export](browse.md) for complete signatures,
-column names, filters and stdout behavior.
+with ConcatWriter("sample.concat.pqs", contigs={"chr1": 1000}) as writer:
+    writer.write_read([
+        Alignment(read_idx=1, read_length=200, read_start=0, read_end=100,
+                  strand="+", chrom=0, start=10, end=110,
+                  mapping_quality=60, identity=0.99),
+        Alignment(read_idx=1, read_length=200, read_start=100, read_end=200,
+                  strand="-", chrom=0, start=500, end=600,
+                  mapping_quality=20, identity=0.98),
+    ])
 
-`pqsio.stats(path, min_mapq=0).to_dict()` provides a one-pass q0 quality summary
-([metrics](stats.md)). `pqsio.index_status(path, quality="q0").to_dict()` reports
-index availability ([index management](query.md)). For native text queries,
-`export`/`view` additionally accept `index="auto"` and `filter_mode=None`;
-`filter_mode="complete_reads"` selects complete concat reads matching a region.
+with Reader("sample.concat.pqs") as reader:
+    for alignments in reader.iter_reads():
+        print(alignments)
+```
+
+For bulk writes, `writer.write_reads([read1_alignments, read2_alignments])`
+accepts a list of complete reads. See [columnar I/O](columnar.md) and
+[parallel writing](parallel.md) for larger workloads.
+
+## Choose compression
+
+`PairsWriter`, `ConcatWriter` and `ParallelWriter` accept `compression` and
+`compression_level`. The default remains Zstd with its codec default level.
+Both q0 and q1 use the selected setting; readers detect the codec automatically.
+
+```python
+from pqsio import Pair, PairsWriter
+
+with PairsWriter("compressed.pairs.pqs", {"chr1": 1000},
+                 compression="zstd", compression_level=6) as writer:
+    writer.write_batch([Pair("read1", 0, 10, 0, 200, "+", "-", 60)])
+
+with PairsWriter("uncompressed.pairs.pqs", {"chr1": 1000},
+                 compression="uncompressed") as writer:
+    writer.write_batch([Pair("read1", 0, 10, 0, 200, "+", "-", 60)])
+```
+
+See [codecs and level ranges](pqs-format.md#compression). Omit
+`compression_level` for the codec default; `0` is an explicit level for gzip
+and Brotli. Invalid settings raise `ValueError` before creating output.
+These options apply to writer constructors; conversion, subset, merge and CLI
+commands continue to use their existing defaults.
+
+## Inspect, filter and export
+
+These calls use the pairs dataset created above:
+
+```python
+import pqsio
+
+print(pqsio.info("sample.pairs.pqs").to_dict())
+print(pqsio.stats("sample.pairs.pqs").to_dict())
+
+pqsio.subset("sample.pairs.pqs", "selected.pairs.pqs",
+             regions=[("chr1", 0, 500)], min_mapq=30)
+pqsio.export("selected.pairs.pqs", "selected.pairs.gz")
+
+report = pqsio.validate("sample.pairs.pqs", level="full")
+print(report.status)  # Check for valid, invalid or incomplete.
+```
+
+Regions are **0-based, half-open**, including for pairs. Operation reports
+provide `.to_dict()`. Validation can report `invalid` or `incomplete` without
+raising an exception, so check its status.
+
+More operations: [queries and indexes](query.md), [subset](subset.md),
+[merge](merge.md), [export](browse.md) and [copy numbers](copy-numbers.md).
+For full conversion contracts and other languages, see the [API reference](api.md).

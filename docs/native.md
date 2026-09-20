@@ -26,6 +26,37 @@ and the next API call may replace it. Rust panics are caught at the ABI boundary
 A read error or failed callback may consume the current shard; abort/reopen the
 reader after an error. Explicitly finish writers; destruction only cleans up.
 
+## Compression
+
+The additive C entry points `pqsio_writer_open_with_compression` and
+`pqsio_parallel_open_with_compression` take a codec string and an optional
+`const int32_t *level`, just before the output-handle argument. Pass `NULL`
+for the codec default level. A pointer to zero requests level 0 explicitly.
+Invalid settings return -1 and leave the output handle NULL.
+
+```c
+int32_t level = 6;
+pqsio_writer *writer = NULL;
+/* Check the return value, then write, finish and destroy as usual. */
+int32_t status = pqsio_writer_open_with_compression(
+    "compressed.pairs.pqs", 0, contigs, n_contigs, 100000,
+    "zstd", &level, &writer);
+```
+
+C++17 constructors accept `pqsio::Compression` after the contig vector:
+
+```cpp
+pqsio::Writer writer("compressed.pairs.pqs", pqsio::Kind::Pairs,
+                     {{"chr1", 1000}}, pqsio::Compression{"zstd", 6});
+pqsio::ParallelWriter parallel("uncompressed.pairs.pqs", pqsio::Kind::Pairs,
+                               {{"chr1", 1000}}, pqsio::Compression{"uncompressed"});
+// Write records and call finish() on each writer.
+```
+
+Existing constructors and ABI v1 remain unchanged and use default Zstd.
+Selecting compression requires the new shared-library symbols. Both quality
+partitions use the setting; see [codecs and levels](pqs-format.md#compression).
+
 ## Conversion and JSON reports
 
 The declarations in `include/pqsio.h` are authoritative. C++17 callers may use

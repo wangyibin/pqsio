@@ -378,6 +378,7 @@ impl Writer {
         };
         let result = (|| {
             let job = parallel::Shard {
+                compression: self.compression,
                 kind: self.kind, contigs: self.contigs.clone(),
                 staging: self.staging.clone(), index: self.shard,
                 columns: Some(batch), pairs: vec![], concat: vec![],

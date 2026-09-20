@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.1 — 2026-09-20
+
+- Add compression selection to synchronous and parallel writer APIs in Rust,
+  Python, C and C++: uncompressed, Zstd, gzip, Brotli, Snappy and LZ4, with
+  validated levels where supported. Keep default Zstd, ABI v1 and PQS schemas.
+- Replace the Python rich-click CLI with a native Rust executable using clap,
+  direct Rust API calls, terminal tables and stderr progress. Preserve the
+  existing commands, region syntax, index behavior and Python/C APIs.
+- Remove the Python CLI runtime dependencies and pip console-script entry.
+  `python -m pqsio` remains an optional launcher for the native executable.
+
+- Migrate documentation to Zensical with concise installation, Python API and
+  CLI guides, plus a PQS format reference.
+- Add reproducible read/write benchmarks comparing text with uncompressed PQS
+  and gzip with default PQS, with measured figures and downloadable summaries.
+- Document a known external-reader limitation: CPhasing with PyArrow 10.0.1
+  rejects concat Parquet footers in compatibility tests; native pqsio reads pass.
+
 ## 0.2.0 — 2026-09-19
 
 - Add a rich-click CLI with direct BAM/PAF/concat conversion commands and native

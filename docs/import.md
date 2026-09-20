@@ -5,7 +5,7 @@ data. Choose `bam2pairs` for pairs PQS or `bam2concat` for alignment-level conca
 PQS; either mode accepts either BAM type. PAF imports support `paf2pairs` and
 `paf2concat` for the corresponding output formats.
 All record processing runs in Rust: BAM decoding via `rust-htslib`, PAF parsing,
-external sorting, pair expansion and PQS writing. The Python CLI and API make
+external sorting, pair expansion and PQS writing. The Python API makes
 one native call per conversion, releasing the GIL during that call. No Python
 record iteration, SQLite database or `samtools` subprocess is used.
 These modes are also available through `pqsio.convert` in Python and

@@ -13,6 +13,7 @@ import pqsio as p
 
 ROOT = Path(__file__).resolve().parent / 'output'
 ROOT.mkdir(exist_ok=True)
+BINARY = Path(os.environ.get("PQSIO_BINARY", Path(__file__).resolve().parents[1] / "target/dev-release/pqsio"))
 
 
 class CliRunner:
@@ -21,7 +22,7 @@ class CliRunner:
         if without_library:
             env['PQSIO_LIBRARY'] = str(ROOT / 'missing-cli-library.so')
         result = subprocess.run(
-            [sys.executable, '-m', 'pqsio', *map(str, args)],
+            [str(BINARY), *map(str, args)],
             env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         self.assertNotIn('Traceback', result.stderr)
@@ -30,10 +31,6 @@ class CliRunner:
 
 class CliTests(CliRunner, unittest.TestCase):
     def test_region_string_parser_and_errors(self):
-        from pqsio.cli import _REGION
-        self.assertEqual(_REGION.convert('chr1:0-1000000', None, None), ('chr1', 0, 1000000))
-        self.assertEqual(_REGION.convert('ref:chr-1:0-18446744073709551615', None, None),
-                         ('ref:chr-1', 0, 2**64-1))
         for value in ['chr1', ':0-10', 'chr1:10-10', 'chr1:20-10', 'chr1:-1-10',
                       'chr1:0-x', 'chr1:0-18446744073709551616', 'chr1:0-10-20']:
             result = self.run_cli('query', 'input', '--region', value, code=2, without_library=True)
@@ -68,13 +65,13 @@ class CliTests(CliRunner, unittest.TestCase):
         ]:
             with self.subTest(args=args):
                 result = self.run_cli(*args, code=2, without_library=True)
-                self.assertIn('Error', result.stderr)
+                self.assertIn('error', result.stderr.lower())
                 self.assertEqual(result.stdout, '')
                 self.assertNotIn('missing-cli-library', result.stderr)
 
-    def test_missing_native_library(self):
+    def test_no_native_shared_library_needed(self):
         result = self.run_cli('inspect', 'input', code=1, without_library=True)
-        self.assertIn('missing-cli-library.so', result.stderr)
+        self.assertNotIn('missing-cli-library', result.stderr)
         self.assertEqual(result.stdout, '')
 
     def test_invalid_bin_sizes_before_loading_library(self):
@@ -83,36 +80,30 @@ class CliTests(CliRunner, unittest.TestCase):
             with self.subTest(size=size):
                 result = self.run_cli('convert', 'input', '-o', 'out', '--mode', 'pairs2cool',
                                       '--bin-size='+size, code=2, without_library=True)
-                self.assertIn('Error', result.stderr)
+                self.assertIn('error', result.stderr.lower())
                 self.assertNotIn('missing-cli-library', result.stderr)
 
-    def test_rich_help_groups_and_aliases(self):
-        import rich_click as click
-        from pqsio.cli import cli
-        self.assertIsInstance(cli, click.RichGroup)
-        self.assertTrue(all(isinstance(command, click.RichCommand) for command in cli.commands.values()))
+    def test_native_help_aliases(self):
         for command in [(), ('convert',), ('inspect',), ('validate',), ('subset',), ('merge',)]:
             expected = self.run_cli(*command, '--help', without_library=True).stdout
             for alias in ['-h', '-help']:
                 self.assertEqual(self.run_cli(*command, alias, without_library=True).stdout, expected)
-        root = self.run_cli('--help', without_library=True).stdout
-        for group in ['Conversion', 'Dataset information', 'Dataset operations']:
-            self.assertIn(group, root)
-        conversion = self.run_cli('convert', '--help', without_library=True).stdout
-        for group in ['Filtering', 'Performance', 'Alignment input', 'Cooler output']:
-            self.assertIn(group, conversion)
-        self.assertNotIn('--samtools', conversion)
+        self.assertNotIn('--samtools', self.run_cli('convert', '--help').stdout)
 
-    def test_interrupt_exit_code(self):
-        from contextlib import redirect_stderr
-        from io import StringIO
-        from pqsio.cli import main
-        with patch('pqsio.cli.inspect', side_effect=KeyboardInterrupt), redirect_stderr(StringIO()) as error:
-            self.assertEqual(main(['inspect', 'input']), 130)
-        self.assertIn('interrupted', error.getvalue())
+    def test_executable_is_native(self):
+        with BINARY.open('rb') as stream:
+            self.assertEqual(stream.read(4), b'\x7fELF')
+
 
 
 class NativeCliTests(CliRunner, unittest.TestCase):
+    def test_native_cli_without_python_or_shared_library(self):
+        env = dict(os.environ, PATH='/nonexistent', PYTHONPATH='/nonexistent', PQSIO_LIBRARY='/nonexistent')
+        result = subprocess.run([str(BINARY), 'inspect', str(self.source)], env=env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['metadata']['format'], 'concat')
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=ROOT)
         self.addCleanup(self.tmp.cleanup)
@@ -218,7 +209,7 @@ class NativeCliTests(CliRunner, unittest.TestCase):
 
     def test_native_errors_and_existing_output(self):
         result = self.run_cli('inspect', self.root / 'missing', code=1)
-        self.assertIn('Error', result.stderr)
+        self.assertIn('error', result.stderr.lower())
         self.assertEqual(result.stdout, '')
         output = self.root / 'existing.pqs'
         self.run_cli('convert', self.source, '-o', output)

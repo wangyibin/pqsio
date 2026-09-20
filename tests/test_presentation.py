@@ -1,16 +1,13 @@
 """Native browsing/export behavior on small repository-local fixtures."""
 import gzip
-import io
 import json
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
 
 import pqsio as p
-from test_cli import CliRunner, ROOT
+from test_cli import CliRunner, ROOT, BINARY
 
 
 class PresentationTests(CliRunner, unittest.TestCase):
@@ -145,7 +142,7 @@ class PresentationTests(CliRunner, unittest.TestCase):
             p.export(self.source, self.root / 'bad', columns=['bogus'])
         self.assertFalse((self.root / 'bad').exists())
 
-    def test_progress_stderr_and_callback_cleanup(self):
+    def test_progress_stderr(self):
         result = self.run_cli('info', self.source, '--json', '--stats', '--progress')
         self.assertEqual(json.loads(result.stdout)['scanned_records'], 120)
         self.assertIn('Done in', result.stderr)
@@ -154,19 +151,9 @@ class PresentationTests(CliRunner, unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)['records'], 120)
         self.assertIn('Finalizing text output', ' '.join(result.stderr.split()))
         self.assertEqual(self.run_cli('head', self.source, '--no-progress').stderr, '')
-        from pqsio.progress import display
-        error = io.StringIO()
-        with redirect_stderr(error):
-            with self.assertRaises(RuntimeError):
-                with display(True, 'test'):
-                    p.info(self.root / 'missing')
-            before = error.getvalue()
-            p.info(self.source, stats=True)
-            self.assertEqual(error.getvalue(), before)
-        self.assertIn('Stopped during', before)
 
     def test_broken_pipe_is_clean(self):
-        process = subprocess.Popen([sys.executable, '-m', 'pqsio', 'view', str(self.source), '--all'],
+        process = subprocess.Popen([str(BINARY), 'view', str(self.source), '--all'],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         process.stdout.close()
         stderr = process.stderr.read().decode()

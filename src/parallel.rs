@@ -29,6 +29,7 @@ impl Default for ParallelOptions {
 }
 
 pub(crate) struct Shard {
+    pub compression: Compression,
     pub kind: Kind,
     pub contigs: Vec<Contig>,
     pub staging: PathBuf,
@@ -48,7 +49,7 @@ impl Shard {
                 Kind::Concat => concat_frame(&self.concat, &self.contigs)?,
             },
         };
-        store_frame(self.kind, &self.staging, self.index, &mut frame, self.concats)
+        store_frame(self.kind, &self.staging, self.index, &mut frame, self.concats, self.compression)
     }
 }
 pub(crate) fn store_frame(
@@ -57,6 +58,7 @@ pub(crate) fn store_frame(
     index: usize,
     frame: &mut DataFrame,
     concats: [u64; 2],
+    compression: Compression,
 ) -> Result<Counts> {
     let mq = if kind == Kind::Pairs {
         "mapq"
@@ -67,11 +69,13 @@ pub(crate) fn store_frame(
     ParquetWriter::new(File::create(
         staging.join(format!("q0/{}.parquet", index)),
     )?)
+    .with_compression(compression.0)
     .finish(frame)?;
     if q1.height() > 0 {
         ParquetWriter::new(File::create(
             staging.join(format!("q1/{}.parquet", index)),
         )?)
+        .with_compression(compression.0)
         .finish(&mut q1)?;
     }
     Ok(Counts {
@@ -283,11 +287,22 @@ impl ParallelWriter {
         chunk_size: usize,
         options: ParallelOptions,
     ) -> Result<Self> {
+        Self::create_with_compression(path, kind, contigs, chunk_size, options, Compression::default())
+    }
+    /// Create an ordered parallel writer with one compression policy for all shards.
+    pub fn create_with_compression(
+        path: impl AsRef<Path>,
+        kind: Kind,
+        contigs: Vec<Contig>,
+        chunk_size: usize,
+        options: ParallelOptions,
+        compression: Compression,
+    ) -> Result<Self> {
         ensure!(
             options.workers > 0 && options.queue_capacity > 0 && options.max_batch_bytes > 0,
             "workers, queue_capacity and max_batch_bytes must be positive"
         );
-        let mut writer = Writer::create(path, kind, contigs, chunk_size)?;
+        let mut writer = Writer::create_with_compression(path, kind, contigs, chunk_size, compression)?;
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 queue: BTreeMap::new(),

@@ -21,7 +21,7 @@ JSON integers (Python preserves their precision).
 This is an additive API; existing Reader/Writer and ABI v1 symbols are unchanged.
 Python calls the new `pqsio_merge_json` C symbol and reports an actionable error
 with older native libraries. The merge binding uses only the standard library;
-the command-line interface uses rich-click.
+the command-line interface is a native Rust executable.
 No dependency or storage-format changes are required. The [CLI](cli.md) exposes
 this API as `pqsio merge`.
 

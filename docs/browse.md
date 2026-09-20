@@ -2,7 +2,7 @@
 
 Browse a PQS directory and export interoperable text without moving record
 processing into Python. All decoding, filtering, text formatting and compression
-run in Rust. The rich-click CLI supplies help, tables and progress.
+run in Rust. The native Rust CLI supplies help, tables and progress.
 
 ## Summary
 

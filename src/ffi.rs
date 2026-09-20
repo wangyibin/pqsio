@@ -248,9 +248,27 @@ pub unsafe extern "C" fn pqsio_writer_open(
     chunk_size: usize,
     out: *mut *mut Writer,
 ) -> i32 {
+    pqsio_writer_open_with_compression(path, kind, contigs, n, chunk_size,
+                                     c"zstd".as_ptr(), ptr::null(), out)
+}
+/// # Safety
+/// Same requirements as `pqsio_writer_open`. `codec` must be a readable
+/// NUL-terminated string; `level` is NULL or points to one readable i32.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_writer_open_with_compression(
+    path: *const c_char,
+    kind: u32,
+    contigs: *const CContig,
+    n: usize,
+    chunk_size: usize,
+    codec: *const c_char,
+    level: *const i32,
+    out: *mut *mut Writer,
+) -> i32 {
     call(|| {
         ensure!(!out.is_null(), "null output handle");
         *out = ptr::null_mut();
+        let compression = Compression::new(&text(codec)?, level.as_ref().copied())?;
         let kind = match kind {
             0 => Kind::Pairs,
             1 => Kind::Concat,
@@ -265,7 +283,8 @@ pub unsafe extern "C" fn pqsio_writer_open(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        *out = Box::into_raw(Box::new(Writer::create(text(path)?, kind, cs, chunk_size)?));
+        *out = Box::into_raw(Box::new(Writer::create_with_compression(
+            text(path)?, kind, cs, chunk_size, compression)?));
         Ok(0)
     })
 }
@@ -558,9 +577,30 @@ pub unsafe extern "C" fn pqsio_parallel_open(
     max_batch_bytes: usize,
     out: *mut *mut ParallelWriter,
 ) -> i32 {
+    pqsio_parallel_open_with_compression(path, kind, contigs, n, chunk_size,
+        workers, queue_capacity, max_batch_bytes, c"zstd".as_ptr(), ptr::null(), out)
+}
+/// # Safety
+/// Same requirements as `pqsio_parallel_open`. `codec` is a readable
+/// NUL-terminated string; `level` is NULL or points to one readable i32.
+#[no_mangle]
+pub unsafe extern "C" fn pqsio_parallel_open_with_compression(
+    path: *const c_char,
+    kind: u32,
+    contigs: *const CContig,
+    n: usize,
+    chunk_size: usize,
+    workers: usize,
+    queue_capacity: usize,
+    max_batch_bytes: usize,
+    codec: *const c_char,
+    level: *const i32,
+    out: *mut *mut ParallelWriter,
+) -> i32 {
     call(|| {
         ensure!(!out.is_null(), "null output handle");
         *out = ptr::null_mut();
+        let compression = Compression::new(&text(codec)?, level.as_ref().copied())?;
         let kind = match kind {
             0 => Kind::Pairs,
             1 => Kind::Concat,
@@ -575,7 +615,7 @@ pub unsafe extern "C" fn pqsio_parallel_open(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        *out = Box::into_raw(Box::new(ParallelWriter::create(
+        *out = Box::into_raw(Box::new(ParallelWriter::create_with_compression(
             text(path)?,
             kind,
             cs,
@@ -585,6 +625,7 @@ pub unsafe extern "C" fn pqsio_parallel_open(
                 queue_capacity,
                 max_batch_bytes,
             },
+            compression,
         )?));
         Ok(0)
     })

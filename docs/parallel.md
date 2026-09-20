@@ -78,6 +78,7 @@ from pqsio import ParallelWriter
 # This small example materializes its inputs; stream/bound them in production.
 with ParallelWriter("sample.pairs.pqs", {"chr1": 1_000_000},
                     workers=2, queue_capacity=4,
+                    compression="zstd", compression_level=6,
                     max_batch_bytes=64 * 1024 * 1024) as writer:
     with writer.producer() as producer:
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -87,6 +88,9 @@ with ParallelWriter("sample.pairs.pqs", {"chr1": 1_000_000},
                 future.result()
 # The context manager calls finish only after submissions have completed.
 ```
+
+Compression options are identical to the [synchronous writer](python.md#choose-compression)
+and apply to every worker's q0/q1 shards. Omit both options for default Zstd.
 
 For concat use `kind="concat"` and
 `producer.write_reads(sequence, complete_reads)`, or
@@ -100,6 +104,8 @@ Rust: `ParallelWriter::create(..., ParallelOptions { workers, queue_capacity,
 max_batch_bytes })`, then `writer.producer()`. Clone a producer per thread or
 share it. Submit `producer.write_pairs(sequence, Vec<Pair>)` or
 `producer.write_reads(sequence, Vec<Alignment>, Vec<usize>)`. Finish the owner.
+Use `ParallelWriter::create_with_compression(..., options, compression)`
+to pass a validated `Compression` value.
 
 C: `pqsio_parallel_open`, `pqsio_parallel_producer`,
 `pqsio_producer_pairs` / `pqsio_producer_reads`, `pqsio_parallel_finish`,
@@ -109,6 +115,8 @@ pointer lifetimes. Error strings are thread-local: read them on the failing thre
 C++17: `pqsio::ParallelWriter`, `writer.producer()` and
 `producer.write_pairs(sequence, rows)` / `write_reads(sequence, rows, offsets)`.
 `tests/parallel.cpp` is a compiled multi-threaded example.
+The C and C++ [compression constructors](native.md#compression) also support
+parallel writers without changing the existing entry points.
 
 ## Reproduction
 

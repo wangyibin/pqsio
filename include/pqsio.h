@@ -49,6 +49,20 @@ uint32_t pqsio_abi_version(void);
 const char *pqsio_last_error(void);
 /* kind: 0 pairs, 1 concat. Existing output/.partial paths are rejected. */
 int32_t pqsio_writer_open(const char *, uint32_t, const pqsio_contig *, size_t, size_t, pqsio_writer **);
+/* Additive compression constructors; old constructors keep Zstd defaults.
+ * codec: "uncompressed", "zstd", "gzip", "brotli", "snappy", "lz4" (LZ4_RAW).
+ * level: NULL for the codec default, otherwise a readable int32_t:
+ * zstd 1..22, gzip 0..9, brotli 0..11. Other codecs reject non-NULL levels.
+ * Applies to all q0/q1 shards, row and column writes. Invalid options fail
+ * before creating output/.partial; *out is NULL on error when out is non-NULL.
+ * Resolve these symbols when supporting older ABI v1 shared libraries. */
+int32_t pqsio_writer_open_with_compression(const char *, uint32_t,
+    const pqsio_contig *, size_t, size_t chunk_size,
+    const char *codec, const int32_t *level, pqsio_writer **);
+int32_t pqsio_parallel_open_with_compression(const char *, uint32_t,
+    const pqsio_contig *, size_t, size_t chunk_size, size_t workers,
+    size_t queue_capacity, size_t max_batch_bytes,
+    const char *codec, const int32_t *level, pqsio_parallel_writer **);
 int32_t pqsio_write_pairs(pqsio_writer *, const pqsio_pair *, size_t);
 /* Exactly one complete read per call, strictly increasing read_idx. */
 int32_t pqsio_write_read(pqsio_writer *, const pqsio_alignment *, size_t);

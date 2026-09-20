@@ -27,6 +27,27 @@ order. For bulk submission, use `write_reads(&rows, &offsets)`; offsets are
 transfer strings without cloning them. The same read must never be submitted twice. This contract avoids an
 unbounded set of previously seen read IDs and prevents accidental group splits.
 
+## Compression
+
+`Writer::create` keeps default Zstd compression. Use a validated
+`Compression` with `create_with_compression` to choose the codec and level:
+
+```rust
+use pqsio::{Compression, Contig, Kind, Writer};
+# fn example() -> anyhow::Result<()> {
+let mut writer = Writer::create_with_compression(
+    "compressed.pairs.pqs", Kind::Pairs,
+    vec![Contig { name: "chr1".into(), length: 1000 }], 100_000,
+    Compression::new("zstd", Some(6))?,
+)?;
+writer.finish()?;
+# Ok(()) }
+```
+
+Use `Compression::new("uncompressed", None)?` for uncompressed Parquet pages.
+`ParallelWriter::create_with_compression` takes the same `Compression` as its
+last argument, after `ParallelOptions`. See [codecs and levels](pqs-format.md#compression).
+
 ## Native conversions
 
 Rust exposes three entry points; unlike Python/CLI, `convert` itself supports

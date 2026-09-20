@@ -1,9 +1,11 @@
-# API overview
+# API reference
 
-The Python API and CLI dispatch dataset operations to the native Rust library.
+Start with the [Python API guide](python.md) for runnable examples.
+This page covers cross-language entry points and conversion contracts.
+
+The native Rust CLI calls the Rust library directly; the Python API calls the C ABI.
 Install/build instructions are in [installation](installation.md). The Python
-storage binding uses the standard library; the CLI uses `rich-click`, installed
-with the Python package. Conversion does not require Python
+storage binding uses the standard library; the independent Rust CLI uses `clap`. Conversion does not require Python
 `pysam`, `pyarrow`, `h5py`, `cooler`, or a `samtools` subprocess.
 
 ## Choose an entry point
@@ -25,7 +27,7 @@ Python's public conversion entry point is **`pqsio.convert`**. Rust's
 separate Rust functions. C++ callers can use these C entry points directly;
 the C++ header does not currently provide conversion member functions.
 
-See [Python signatures](python.md), [Rust examples](rust.md),
+See [Python examples](python.md), [Rust examples](rust.md),
 [C/C++ callbacks](native.md), and the [CLI reference](cli.md).
 Streaming, columnar and query APIs are documented separately under
 [streaming](streaming.md), [columnar I/O](columnar.md), [parallel writing](parallel.md)

@@ -1,6 +1,6 @@
 [package]
 name = "pqsio"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Shared pairs and concat PQS storage for Rust, C, C++ and Python"
 license = "BSD-3-Clause"
@@ -10,6 +10,7 @@ repository = "https://github.com/wangyibin/pqsio"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
+clap = "4.4.10"
 anyhow = "1.0.70"
 chrono = "0.4.24"
 flate2 = { version = "1.1.5", default-features = false }

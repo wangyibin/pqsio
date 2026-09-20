@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 import pqsio as p
 from test_cli import CliRunner, ROOT
@@ -43,22 +42,7 @@ class UserCommandTests(CliRunner, unittest.TestCase):
                 self.assertEqual(result.stderr, '')
         self.assertNotIn('--min-order', self.run_cli('pairs2cool', '--help').stdout)
         self.assertNotIn('--bin-size', self.run_cli('bam2pairs', '--help').stdout)
-        self.assertNotIn('--mode', self.run_cli('concat2pairs', '--help').stdout.split('Options')[1])
-
-    def test_alias_dispatch_matches_existing_conversion(self):
-        from pqsio.cli import main
-        from contextlib import redirect_stdout
-        from io import StringIO
-        for mode in ('bam2pairs', 'bam2concat', 'paf2pairs', 'paf2concat', 'concat2pairs', 'pairs2cool'):
-            args = [mode, 'input', '-o', 'output', '--no-progress']
-            if mode == 'pairs2cool':
-                args += ['--binsize', '10k']
-            with patch('pqsio.cli.convert', return_value=p.ConvertResult({'ok': True})) as call, redirect_stdout(StringIO()):
-                self.assertEqual(main(args), 0)
-                self.assertEqual(call.call_args.kwargs['mode'], mode)
-                self.assertEqual(call.call_args.kwargs['input'], 'input')
-                if mode == 'pairs2cool':
-                    self.assertEqual(call.call_args.kwargs['bin_size'], 10000)
+        self.assertNotIn('--mode', self.run_cli('concat2pairs', '--help').stdout.split('Options:')[1])
 
     def test_real_direct_conversions(self):
         target = self.root / 'converted.pqs'

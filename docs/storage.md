@@ -1,5 +1,16 @@
 # Storage and compatibility
 
+For a user-facing introduction to directory layout, fields and coordinates,
+start with [PQS format](pqs-format.md).
+
+!!! warning "External reader compatibility"
+
+    During v0.2.1 validation, the external CPhasing reader with PyArrow 10.0.1
+    rejected generated concat Parquet footers with `Unrecognized type:24`, for
+    both synchronous and parallel output. Native pqsio round trips passed.
+    The minimum compatible PyArrow version has not been established; check
+    your downstream reader before adopting this release for that workflow.
+
 - Both datasets have `_contigsizes`, `_metadata`, `_metadata_counts`, `_readme`,
   `q0/` and `q1/`. q0 contains **all** records; q1 contains MAPQ >= 1, not a
   disjoint complement. Concat uses `mapping_quality`; pairs uses `mapq`.

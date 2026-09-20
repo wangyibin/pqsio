@@ -6,7 +6,7 @@ pqsio stats sample.concat.pqs --min-mapq 30
 pqsio stats sample.pairs.pqs --json > sample.stats.json
 ```
 
-`stats` always scans q0 once in Rust and prints a Rich table, or the complete
+`stats` always scans q0 once in Rust and prints a terminal table, or the complete
 report with `--json`. q1 is a redundant quality partition and is never added to
 q0 counts. Use `info` when only the fast metadata/footer summary is needed.
 `--progress/--no-progress` follows the usual stderr/terminal behavior.

@@ -3,9 +3,14 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <optional>
 namespace pqsio {
 inline int check(int code) { if (code < 0) throw std::runtime_error(pqsio_last_error()); return code; }
 enum class Kind : uint32_t { Pairs = 0, Concat = 1 };
+struct Compression {
+    std::string codec = "zstd";
+    std::optional<int32_t> level = std::nullopt;
+};
 // Owns native column buffers. Borrowed views must not outlive this object.
 class ColumnBatch {
     pqsio_column_batch *handle_ = nullptr;
@@ -30,6 +35,12 @@ class Writer {
 public:
     Writer(const std::string &path, Kind kind, const std::vector<pqsio_contig> &contigs, size_t chunksize = 1000000) {
         check(pqsio_writer_open(path.c_str(), static_cast<uint32_t>(kind), contigs.data(), contigs.size(), chunksize, &handle_));
+    }
+    Writer(const std::string &path, Kind kind, const std::vector<pqsio_contig> &contigs,
+           const Compression &compression, size_t chunksize = 1000000) {
+        check(pqsio_writer_open_with_compression(path.c_str(), static_cast<uint32_t>(kind),
+            contigs.data(), contigs.size(), chunksize, compression.codec.c_str(),
+            compression.level ? &*compression.level : nullptr, &handle_));
     }
     Writer(const Writer &) = delete;
     Writer &operator=(const Writer &) = delete;
@@ -67,6 +78,13 @@ public:
                    size_t max_batch_bytes = 64 * 1024 * 1024) {
         check(pqsio_parallel_open(path.c_str(), static_cast<uint32_t>(kind), contigs.data(), contigs.size(),
                                  chunksize, workers, queue_capacity, max_batch_bytes, &handle_));
+    }
+    ParallelWriter(const std::string &path, Kind kind, const std::vector<pqsio_contig> &contigs,
+                   const Compression &compression, size_t chunksize = 1000000, size_t workers = 2,
+                   size_t queue_capacity = 4, size_t max_batch_bytes = 64 * 1024 * 1024) {
+        check(pqsio_parallel_open_with_compression(path.c_str(), static_cast<uint32_t>(kind),
+            contigs.data(), contigs.size(), chunksize, workers, queue_capacity, max_batch_bytes,
+            compression.codec.c_str(), compression.level ? &*compression.level : nullptr, &handle_));
     }
     ParallelWriter(const ParallelWriter &) = delete;
     ParallelWriter &operator=(const ParallelWriter &) = delete;

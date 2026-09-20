@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from test_cli import BINARY
 import pqsio as p
 
 ROOT = Path(__file__).resolve().parent / 'output'
@@ -119,7 +120,7 @@ class CoolTests(unittest.TestCase):
             if malformed is None: shard.write_bytes(b'broken parquet')
             else: malformed.write_parquet(shard, row_group_size=1)
             output = self.root / f'failed-{i}.cool'
-            result = subprocess.run([sys.executable,'-m','pqsio','convert',str(source),'--mode','pairs2cool',
+            result = subprocess.run([str(BINARY),'convert',str(source),'--mode','pairs2cool',
                 '--bin-size','10','--threads','4','--batch-rows','1','--chunk-size','1','-o',str(output)],
                 capture_output=True,text=True,timeout=30)
             self.assertIn(result.returncode, [1,2], result.stderr)
@@ -185,7 +186,7 @@ with h5py.File(path) as f:
         sizes = self.root / 'sizes.gz'
         sizes.write_bytes(gzip.compress(b'a\t25\nb\t12\n'))
         output = self.root / 'cli.cool'
-        result = subprocess.run([sys.executable,'-m','pqsio','convert',str(source),'--mode','pairs2cool',
+        result = subprocess.run([str(BINARY),'convert',str(source),'--mode','pairs2cool',
                                  '--bin-size','10','--contigsizes',str(sizes),'-o',str(output)],
                                 capture_output=True,text=True,timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -215,7 +216,7 @@ with h5py.File(path) as f:
             ('-bs', '1.5M', 1500000),
         ]):
             with self.subTest(flag=flag, size=size):
-                result = subprocess.run([sys.executable,'-m','pqsio','convert',str(source),
+                result = subprocess.run([str(BINARY),'convert',str(source),
                     '--mode','pairs2cool',flag,size,'-o',str(self.root/f'cli-{i}.cool')],
                     capture_output=True,text=True,timeout=60)
                 self.assertEqual(result.returncode, 0, result.stderr)
