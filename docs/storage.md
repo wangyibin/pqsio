@@ -8,8 +8,26 @@ start with [PQS format](pqs-format.md).
     During v0.2.1 validation, the external CPhasing reader with PyArrow 10.0.1
     rejected generated concat Parquet footers with `Unrecognized type:24`, for
     both synchronous and parallel output. Native pqsio round trips passed.
-    The minimum compatible PyArrow version has not been established; check
-    your downstream reader before adopting this release for that workflow.
+    This combination is outside the supported release scope. The minimum
+    compatible PyArrow version has not been established; upgrading alone is
+    not a verified workaround. Use the native pqsio concat reader.
+
+## Release compatibility boundary
+
+| Consumer / installation | Scope |
+| --- | --- |
+| Native pqsio pairs and concat, Linux x86-64, locked Pixi | Primary release target; Rust CLI and Python/C/C++ bindings |
+| CPhasing + PyArrow 10.0.1, generated pairs | Small synchronous/parallel integration fixtures pass; no full-pipeline claim |
+| CPhasing + PyArrow 10.0.1, generated concat | Unsupported: footer decoding fails for synchronous and parallel writers |
+| Other PyArrow versions / external readers | Unverified; no minimum version or blanket Parquet interoperability claim |
+| Linux aarch64 / other Python versions | Not covered by this release acceptance |
+| Prebuilt wheels / Conda binaries / other operating systems | Outside this source release |
+
+The integration suite retains failing concat checks rather than skipping or
+marking them as expected failures. A supported CPhasing concat release requires
+those checks to pass in an explicitly recorded environment.
+
+## Storage contracts
 
 - Both datasets have `_contigsizes`, `_metadata`, `_metadata_counts`, `_readme`,
   `q0/` and `q1/`. q0 contains **all** records; q1 contains MAPQ >= 1, not a

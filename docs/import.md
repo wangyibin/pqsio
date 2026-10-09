@@ -39,7 +39,7 @@ pqsio convert reads.concat.pqs -o reads.pairs.pqs --min-order 2 --threads 4
 ```
 
 For source checkout use, prefix the command with `pixi run`, for example
-`pixi run pqsio convert hic.bam --mode bam2pairs -o hic.pqs`. See
+`pqsio convert hic.bam --mode bam2pairs -o hic.pqs`. See
 [CLI installation](cli.md) for the standalone command and native library setup.
 
 ```python

@@ -19,6 +19,63 @@ binding loads that same absolute library path and reads the native outputs.
 The aarch64 environment is resolved in the lockfile but requires separate
 build and runtime validation.
 
+## Release acceptance scope
+
+Freeze new features for this source release. Acceptance covers Linux x86-64
+using the locked Pixi environment, native pairs/concat storage, CLI conversions
+and the Python/C/C++ bindings. Storage schemas and ABI v1 remain unchanged.
+See the [compatibility boundary](storage.md#release-compatibility-boundary)
+before using an external reader.
+
+CPhasing/PyArrow 10.0.1 concat interoperability is explicitly excluded, not
+fixed: the integration suite must continue to expose its footer-decoding
+failures. Passing pairs fixtures does not establish full CPhasing pipeline
+compatibility. Other PyArrow versions, aarch64, other operating systems and
+prebuilt Python/Conda packages need separate acceptance.
+
+## v0.2.2 source-release acceptance
+
+Validated on the v0.2.2 sources before committing and tagging the source release.
+Acceptance covers the scope above, including the complete-read concat workflow,
+CLI help improvements and documentation updates. Storage schemas and ABI v1
+remain unchanged.
+
+Environment: Linux x86-64, locked Pixi, Rust/Cargo 1.91.1, Python 3.11.16 and
+Polars 0.20.29; all native builds used `dev-release`.
+
+| Check | Result |
+| --- | --- |
+| `PQSIO_COOLER_TEST_PYTHON=/path/to/consumer/python pixi run --locked test` | Exit 0; 53 Rust tests passed, 1 opt-in performance test ignored; all 189 Python/C/C++ cases passed with no skips |
+| Independent Cooler consumer | Python 3.8.8, Cooler 0.9.1, h5py 3.8.0; all 10 Cooler tests ran in the main suite |
+| `pixi run --locked lint` | Exit 0; all-target Clippy with warnings denied |
+| `pixi run --locked -e docs docs-build` | Passed with the polling watcher; generated homepage and updated documentation pages verified |
+| Separate CPhasing compatibility suite | 10 tests: 8 passed, 2 concat errors (`Unrecognized type:24`); outside the supported scope, not an all-green integration result |
+| CLI/Python version smoke checks | Both report `0.2.2` |
+| `git diff --check` | Passed |
+
+The independent Cooler Python reads generated files; it is not the supported
+Python binding environment. The three new concat workflow tests cover complete
+alignment preservation, independent MAPQ/order filtering, deferred expansion,
+real-input logical-ID selection, empty results and output-path safety.
+
+The separate CPhasing checks used the sibling source checkout, Python 3.8.8,
+PyArrow 10.0.1 and Polars 0.20.29 with the newly built pqsio shared library.
+Both synchronous and parallel pairs checks passed; both concat checks failed.
+The CPhasing Rust-writer fixture and independent Polars fixtures passed.
+The available samtools enabled all BAM fixture tests. Historical v0.0.1
+capability tests and the CPhasing copy-number loader check ran without skips.
+
+The host file-watch limit was 8192 (`fs.inotify.max_user_watches`). A syscall
+trace confirmed `ENOSPC` during earlier documentation builds. Both Pixi
+documentation tasks now set `ZENSICAL_POLL_WATCHER=1`, allowing build/preview
+without administrator permissions. See
+[file-watch troubleshooting](documentation.md#troubleshooting-an-empty-site).
+
+No full genome pipeline, fresh-machine install, aarch64 runtime, alternate
+Python/PyArrow matrix, prebuilt wheel/Conda package or final `release`-profile
+artifact was validated. Use a new tag for new source revisions; do not repoint
+an existing release tag.
+
 ## v0.1.0 validation
 
 Validated on Linux x86-64 with `pixi run --locked test`: 39 Rust tests and
@@ -37,11 +94,16 @@ Storage format versions and the C ABI version are separate contracts.
 Before creating an annotated release tag:
 
 1. Run `pixi run --locked test` and review any skipped tests.
-2. Run `pixi run --locked -e docs docs-build`.
-3. Review the Git changes, including existing documentation edits and deletions.
-4. Commit source, headers, Python bindings, tests, licenses and lockfiles; keep
+2. Run `pixi run --locked lint`.
+3. Run `pixi run --locked -e docs docs-build`.
+4. Run the separate compatibility suite below; record each supported/unsupported
+   path and the actual environment. Do not describe excluded failures as passes.
+5. Review the Git changes, including existing documentation edits and deletions,
+   and record the final validation results and all skips.
+6. Commit source, headers, Python bindings, tests, licenses and lockfiles; keep
    environments, build outputs and generated native libraries ignored.
-5. Tag the verified commit, then push the commit and tag to the intended remote.
+7. Tag the verified commit, then push the commit and tag to the intended remote.
+   Do not move an existing tag to include later fixes.
 
 A Git source release does not bundle a compiled shared library. Python users
 must build/provide the native library and set `PQSIO_LIBRARY`; prebuilt Python

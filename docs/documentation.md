@@ -28,18 +28,24 @@ installation or virtual environment is needed.
 
 ## Troubleshooting an empty site
 
-If Zensical reports a successful build but produces no homepage, or the preview
-returns 404, check Linux file-watch resources. An `inotify_add_watch` failure
-with `ENOSPC` means the user has exhausted the available file watches; it does
-not mean the documentation output directory is full. Close unnecessary file
-watchers, or ask an administrator to raise the limit, for example:
+The `docs-build` and `docs-serve` tasks set `ZENSICAL_POLL_WATCHER=1`.
+This uses polling instead of inotify, so preview/build works without administrator
+permissions even when the user's file-watch quota is exhausted. Zensical's
+[official release notes](https://github.com/zensical/zensical/releases/tag/v0.0.28)
+document this option. Polling defaults to a 500 ms interval and can add some
+filesystem/CPU overhead.
+
+If running Zensical directly rather than through these tasks, use:
 
 ```sh
-sudo sysctl -w fs.inotify.max_user_watches=524288
+ZENSICAL_POLL_WATCHER=1 pixi run -e docs zensical serve -f zensical.toml
 ```
 
-This system-wide setting lasts until reboot. After resources are available,
-rerun `pixi run -e docs docs-build`, then `pixi run -e docs docs-serve`.
+Stop an old preview with Ctrl+C, run `pixi run -e docs docs-build`, then restart
+`pixi run -e docs docs-serve`. No `sudo` or system configuration change is needed.
+An inotify-based build can report success while producing no homepage when
+`inotify_add_watch` fails with `ENOSPC`. This means file-watch quota exhaustion,
+not a full disk; the build task checks the homepage to catch that failure.
 
 ## Editing
 

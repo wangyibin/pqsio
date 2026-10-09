@@ -11,6 +11,7 @@ nav = [
   { "Python API" = "python.md" },
   { "CLI" = "cli.md" },
   { "PQS format" = "pqs-format.md" },
+  { "Concat workflow" = "concat-workflow.md" },
   { "Reference" = [
     { "API contracts" = "api.md" },
     { "Other languages" = [

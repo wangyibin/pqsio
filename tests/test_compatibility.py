@@ -36,41 +36,51 @@ class Compatibility(unittest.TestCase):
             for name, dtype in meta["schema"].items():
                 self.assertEqual(frame.schema[name],dtype)
             self.assertEqual(meta["format"],kind)
-    def test_existing_cphasing_python_reader(self):
-        from cphasing.pqs import PQS
-        for kind in ("pairs", "concat"):
-            path=self.root / (kind+"_cphasing")
-            if kind=="pairs":
-                with PairsWriter(path,{"a":100},chunk_size=1) as w:
-                    w.write_batch([Pair("x",0,1,0,100,"+","-",0),Pair("y",0,2,0,99,"-","+",30)])
-            else:
-                with ConcatWriter(path,{"a":100},chunk_size=1) as w:
-                    w.write_read([Alignment(1,100,0,50,"+",0,0,50,0,0.5),Alignment(1,100,50,100,"-",0,50,100,30,1.0)])
-            reader=PQS(str(path))
-            reader.init_read()
-            self.assertEqual(reader.metadata["format"],kind)
-            for q, count in ((0,2),(1,1),(40,0)):
-                batches=reader.read(min_mapq=q) if kind=="pairs" else reader.read_concat(min_mapq=q)
-                self.assertEqual(sum(b.height for b in batches),count)
+    def test_existing_cphasing_python_reader_pairs(self):
+        self.check_existing_cphasing_python_reader("pairs")
 
-    def test_parallel_output_with_existing_cphasing_reader(self):
+    def test_existing_cphasing_python_reader_concat(self):
+        self.check_existing_cphasing_python_reader("concat")
+
+    def check_existing_cphasing_python_reader(self, kind):
         from cphasing.pqs import PQS
-        for kind in ("pairs", "concat"):
-            path=self.root / (kind+"_parallel")
-            with ParallelWriter(path,{"a":100},kind=kind,chunk_size=2,workers=2) as w:
-                with w.producer() as p:
-                    if kind=="pairs":
-                        p.write_batch(1,[Pair("y",0,2,0,99,"-","+",30)])
-                        p.write_batch(0,[Pair("x",0,1,0,100,"+","-",0)])
-                    else:
-                        p.write_reads(1,[[Alignment(2,100,0,50,"+",0,0,50,30,0.5)]])
-                        p.write_reads(0,[[Alignment(1,100,0,50,"+",0,0,50,0,0.5)]])
-            reader=PQS(str(path))
-            reader.init_read()
-            self.assertEqual(reader.metadata["format"],kind)
-            for q,count in ((0,2),(1,1),(40,0)):
-                batches=reader.read(min_mapq=q) if kind=="pairs" else reader.read_concat(min_mapq=q)
-                self.assertEqual(sum(b.height for b in batches),count)
+        path=self.root / (kind+"_cphasing")
+        if kind=="pairs":
+            with PairsWriter(path,{"a":100},chunk_size=1) as w:
+                w.write_batch([Pair("x",0,1,0,100,"+","-",0),Pair("y",0,2,0,99,"-","+",30)])
+        else:
+            with ConcatWriter(path,{"a":100},chunk_size=1) as w:
+                w.write_read([Alignment(1,100,0,50,"+",0,0,50,0,0.5),Alignment(1,100,50,100,"-",0,50,100,30,1.0)])
+        reader=PQS(str(path))
+        reader.init_read()
+        self.assertEqual(reader.metadata["format"],kind)
+        for q, count in ((0,2),(1,1),(40,0)):
+            batches=reader.read(min_mapq=q) if kind=="pairs" else reader.read_concat(min_mapq=q)
+            self.assertEqual(sum(b.height for b in batches),count)
+
+    def test_parallel_output_with_existing_cphasing_reader_pairs(self):
+        self.check_parallel_output_with_existing_cphasing_reader("pairs")
+
+    def test_parallel_output_with_existing_cphasing_reader_concat(self):
+        self.check_parallel_output_with_existing_cphasing_reader("concat")
+
+    def check_parallel_output_with_existing_cphasing_reader(self, kind):
+        from cphasing.pqs import PQS
+        path=self.root / (kind+"_parallel")
+        with ParallelWriter(path,{"a":100},kind=kind,chunk_size=2,workers=2) as w:
+            with w.producer() as p:
+                if kind=="pairs":
+                    p.write_batch(1,[Pair("y",0,2,0,99,"-","+",30)])
+                    p.write_batch(0,[Pair("x",0,1,0,100,"+","-",0)])
+                else:
+                    p.write_reads(1,[[Alignment(2,100,0,50,"+",0,0,50,30,0.5)]])
+                    p.write_reads(0,[[Alignment(1,100,0,50,"+",0,0,50,0,0.5)]])
+        reader=PQS(str(path))
+        reader.init_read()
+        self.assertEqual(reader.metadata["format"],kind)
+        for q,count in ((0,2),(1,1),(40,0)):
+            batches=reader.read(min_mapq=q) if kind=="pairs" else reader.read_concat(min_mapq=q)
+            self.assertEqual(sum(b.height for b in batches),count)
 
     def test_existing_cphasing_rust_writer(self):
         import subprocess

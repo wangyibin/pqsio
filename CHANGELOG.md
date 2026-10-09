@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2 — 2026-10-08
+
+- Add a runnable concat workflow and integration tests: select complete reads
+  by region/quality/logical ID, preserve stored fragments and optionally expand
+  pairs with independent quality/order thresholds. No format or ABI changes.
+- Clarify native CLI command descriptions and use direct `pqsio` commands in
+  user documentation, with PATH setup and Bioconda installation instructions.
+- Use the polling watcher for documentation build/preview to avoid inotify
+  quota exhaustion and empty-site 404 responses without administrator access.
+- Define source-release compatibility and separate pairs/concat CPhasing tests.
+  CPhasing with PyArrow 10.0.1 remains unsupported for generated concat PQS;
+  no minimum compatible PyArrow version is claimed.
+- Record validation for the Linux x86-64 source release in the development guide.
+
 ## 0.2.1 — 2026-09-20
 
 - Add compression selection to synchronous and parallel writer APIs in Rust,

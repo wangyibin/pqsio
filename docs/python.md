@@ -89,6 +89,9 @@ For bulk writes, `writer.write_reads([read1_alignments, read2_alignments])`
 accepts a list of complete reads. See [columnar I/O](columnar.md) and
 [parallel writing](parallel.md) for larger workloads.
 
+See the [concat workflow](concat-workflow.md) for complete-read extraction,
+independent selection/expansion thresholds and a runnable example.
+
 ## Choose compression
 
 `PairsWriter`, `ConcatWriter` and `ParallelWriter` accept `compression` and

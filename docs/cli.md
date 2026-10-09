@@ -1,12 +1,11 @@
 # CLI
 
-After [installation](installation.md), run these commands from the `pqsio`
-repository. If you added the native executable to PATH,
-replace `pixi run pqsio` with `pqsio`.
+Complete [installation](installation.md), including adding the native executable
+to PATH. Then run `pqsio` directly from your data directory.
 
 ```sh
-pixi run pqsio --help
-pixi run pqsio bam2pairs --help  # Options for a specific command
+pqsio --help
+pqsio bam2pairs --help  # Options for a specific command
 ```
 
 Replace the input filenames with your files. PQS paths are directories;
@@ -17,8 +16,8 @@ output paths must not already exist, and their parent directories must exist.
 A typical BAM → PQS → Cooler workflow:
 
 ```sh
-pixi run pqsio bam2pairs hic.bam -o hic.pairs.pqs --min-mapq 30 --threads 4
-pixi run pqsio pairs2cool hic.pairs.pqs -o hic.10k.cool --bin-size 10k --threads 4
+pqsio bam2pairs hic.bam -o hic.pairs.pqs --min-mapq 30 --threads 4
+pqsio pairs2cool hic.pairs.pqs -o hic.10k.cool --bin-size 10k --threads 4
 ```
 
 Choose the command for your input and desired output:
@@ -42,13 +41,16 @@ For paired-end Hi-C, use `bam2pairs` to keep cross-mate contacts;
 [concat-to-pairs](convert.md) and [Cooler output](cool.md) for detailed rules.
 The equivalent `convert INPUT -o OUTPUT --mode MODE` syntax is also supported.
 
+See the [concat workflow](concat-workflow.md) to retain all fragments of
+selected reads and expand pairs only when needed.
+
 ## Inspect and export
 
 ```sh
-pixi run pqsio info hic.pairs.pqs
-pixi run pqsio head hic.pairs.pqs -n 10
-pixi run pqsio stats hic.pairs.pqs --json
-pixi run pqsio export hic.pairs.pqs -o hic.pairs.gz --threads 4
+pqsio info hic.pairs.pqs
+pqsio head hic.pairs.pqs -n 10
+pqsio stats hic.pairs.pqs --json
+pqsio export hic.pairs.pqs -o hic.pairs.gz --threads 4
 ```
 
 `info` summarizes the dataset, `head` previews rows, and `stats` scans quality
@@ -56,23 +58,23 @@ metrics. Export writes pairs or concat text; `.gz` enables compression.
 Use `view` for a filtered preview or selected columns:
 
 ```sh
-pixi run pqsio view hic.pairs.pqs --region chr1:0-1000000 --columns chrom1,pos1,chrom2,pos2
+pqsio view hic.pairs.pqs --region chr1:0-1000000 --columns chrom1,pos1,chrom2,pos2
 ```
 
 ## Query, subset and merge
 
 ```sh
 # Print contacts overlapping a region.
-pixi run pqsio query hic.pairs.pqs --region chr1:0-1000000
+pqsio query hic.pairs.pqs --region chr1:0-1000000
 
 # Save selected contacts as a new PQS dataset.
-pixi run pqsio subset hic.pairs.pqs -o chr1.pairs.pqs --region chr1:0-1000000
+pqsio subset hic.pairs.pqs -o chr1.pairs.pqs --region chr1:0-1000000
 
 # Merge datasets of the same format.
-pixi run pqsio merge first.pairs.pqs second.pairs.pqs -o merged.pairs.pqs
+pqsio merge first.pairs.pqs second.pairs.pqs -o merged.pairs.pqs
 
 # Check dataset structure and records.
-pixi run pqsio validate hic.pairs.pqs --level full
+pqsio validate hic.pairs.pqs --level full
 ```
 
 Regions are **0-based, half-open**. Pairs match either endpoint by default.
@@ -87,13 +89,13 @@ Conversions and file exports print JSON reports; `info` and `stats` use
 and errors go to stderr; add `--no-progress` to disable progress.
 
 ```sh
-pixi run pqsio info hic.pairs.pqs --json > info.json
+pqsio info hic.pairs.pqs --json > info.json
 ```
 
 A zero exit code means success. Validation returns `1` for an invalid dataset
 and `3` for an incomplete check; inspect its JSON report for details.
 
-More options: `pixi run pqsio COMMAND --help`, or the reference pages for
+More options: `pqsio COMMAND --help`, or the reference pages for
 [browse/export](browse.md), [statistics](stats.md), [queries](query.md),
 [subset](subset.md), [merge](merge.md) and [validation](inspection.md).
 

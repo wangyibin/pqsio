@@ -12,17 +12,20 @@ layout, fields and coordinate conventions.
 
 ## 1. Install
 
-With [Pixi](https://pixi.sh) installed, run on Linux:
+For Conda users, see [Bioconda installation](installation.md#bioconda).
+To build from source with [Pixi](https://pixi.sh), run on Linux:
 
 ```sh
 git clone https://github.com/wangyibin/pqsio.git
 cd pqsio
 pixi install --locked
 pixi run build
+export PATH="$PWD/target/dev-release:$PATH"
 ```
 
 Already have the source? Start from `cd pqsio`.
-Pixi configures Python and the native library for you.
+Pixi configures Python and the native library for you. The PATH setting
+enables direct `pqsio` commands in the current shell.
 See [installation](installation.md) for use in another Python environment.
 
 ## 2. Call the Python API
@@ -53,10 +56,10 @@ See the [Python API](python.md) for conversion, concat reads and filtering.
 Inspect and export the dataset created above:
 
 ```sh
-pixi run pqsio info sample.pairs.pqs
-pixi run pqsio head sample.pairs.pqs -n 10
-pixi run pqsio export sample.pairs.pqs -o sample.pairs.gz
-pixi run pqsio --help
+pqsio info sample.pairs.pqs
+pqsio head sample.pairs.pqs -n 10
+pqsio export sample.pairs.pqs -o sample.pairs.gz
+pqsio --help
 ```
 
 See the [CLI guide](cli.md) for BAM/PAF conversion, Cooler output and region queries.

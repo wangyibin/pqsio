@@ -106,7 +106,16 @@ fn format_arg(default: &'static str) -> Arg {
 }
 fn conversion(mode: &'static str) -> Command {
     let all = mode == "convert";
-    let mut c = sizing(command(mode, "Convert input using native Rust I/O"))
+    let about = match mode {
+        "bam2concat" => "Convert BAM alignments to concat PQS",
+        "bam2pairs" => "Convert BAM alignments to pairs PQS",
+        "concat2pairs" => "Expand concat PQS reads into pairwise contacts in pairs PQS",
+        "paf2concat" => "Convert PAF alignments to concat PQS",
+        "paf2pairs" => "Convert PAF alignments to pairs PQS",
+        "pairs2cool" => "Bin pairs PQS or pairs text into a Cooler contact matrix (.cool)",
+        _ => "Convert files with --mode (default: concat2pairs)",
+    };
+    let mut c = sizing(command(mode, about))
         .arg(input())
         .arg(output(true))
         .arg(mapq())
@@ -167,9 +176,9 @@ fn app() -> Command {
         c = c.subcommand(conversion(mode).display_order(0));
     }
     c = c
-        .subcommand(command("inspect", "Dataset information: metadata and footers").arg(input()))
+        .subcommand(command("inspect", "Inspect PQS metadata and Parquet footers as JSON").arg(input()))
         .subcommand(
-            command("validate", "Dataset information: validation JSON")
+            command("validate", "Check PQS integrity and report validation results as JSON")
                 .arg(input())
                 .arg(
                     option("level", "Validation depth")
@@ -179,19 +188,24 @@ fn app() -> Command {
                 .arg(option("max-issues", "Maximum stored examples").default_value("100")),
         )
         .subcommand(
-            command("info", "PQS summary")
+            command("info", "Summarize PQS format, contigs and record counts")
                 .arg(input())
                 .arg(flag("json", "Print JSON"))
                 .arg(flag("stats", "Scan MAPQ statistics")),
         )
         .subcommand(
-            command("stats", "PQS quality statistics")
+            command("stats", "Compute PQS mapping-quality and contact statistics")
                 .arg(input())
                 .arg(mapq())
                 .arg(flag("json", "Print JSON")),
         );
-    for name in ["head", "view", "export", "query"] {
-        let mut cmd = browse(command(name, "Browse or export native PQS records")).arg(input());
+    for (name, about) in [
+        ("head", "Preview the first PQS records (default: 10 rows)"),
+        ("view", "Preview PQS records with filters and selected columns (default: 100 rows)"),
+        ("export", "Export PQS records to pairs, concat or TSV text, optionally gzip-compressed"),
+        ("query", "Query PQS records by genomic region using indexes when available"),
+    ] {
+        let mut cmd = browse(command(name, about)).arg(input());
         if name == "head" || name == "view" {
             cmd = cmd.mut_arg("limit", |arg| {
                 arg.default_value(if name == "head" { "10" } else { "100" })
@@ -234,7 +248,7 @@ fn app() -> Command {
     }
     c = c
         .subcommand(
-            sizing(command("subset", "Dataset operations: select records"))
+            sizing(command("subset", "Save filtered records as a new PQS dataset"))
                 .arg(input())
                 .arg(output(true))
                 .arg(option("min-mapq", "Minimum MAPQ"))
@@ -256,17 +270,21 @@ fn app() -> Command {
         .subcommand(
             sizing(command(
                 "merge",
-                "Dataset operations: merge same-format PQS",
+                "Merge PQS datasets of the same format into a new dataset",
             ))
             .arg(input().num_args(1..))
             .arg(output(true))
             .arg(flag("no-provenance", "Omit provenance")),
         );
     let mut index = styled(Command::new("index"))
-        .about("Build, check or rebuild q0/q1 indexes")
+        .about("Build, check or rebuild genomic region indexes for q0/q1 partitions")
         .disable_help_subcommand(true);
-    for name in ["build", "status", "rebuild"] {
-        let mut cmd = command(name, "Manage independent quality indexes")
+    for (name, about) in [
+        ("build", "Build genomic region indexes for selected quality partitions"),
+        ("status", "Show index availability and validity for selected quality partitions"),
+        ("rebuild", "Replace genomic region indexes for selected quality partitions"),
+    ] {
+        let mut cmd = command(name, about)
             .arg(input())
             .arg(
                 option("quality", "Partition")

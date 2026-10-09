@@ -1,9 +1,33 @@
 # Installation
 
-## Recommended: Pixi
+## Bioconda
 
-Requirements: Linux (x86-64 or aarch64), Git and [Pixi](https://pixi.sh).
-The aarch64 environment is configured but has not been validated at runtime.
+Create a dedicated environment and run the CLI directly:
+
+```sh
+conda create -n pqsio --override-channels -c conda-forge -c bioconda \
+  --strict-channel-priority pqsio
+conda activate pqsio
+pqsio --version
+pqsio --help
+```
+
+The channel order and strict priority follow the
+[Bioconda installation guide](https://bioconda.github.io/index.html#with-conda).
+These commands need no administrator privileges and do not modify your channel
+configuration.
+
+## Build from source with Pixi
+
+Validated release target: Linux x86-64, Git and [Pixi](https://pixi.sh).
+The aarch64 environment is configured but is outside the validated release
+scope until build and runtime checks pass. Python metadata allows >= 3.9;
+the locked test environment uses Python 3.11, so other Python versions are
+not covered by this release acceptance.
+
+CPhasing with PyArrow 10.0.1 cannot consume generated concat PQS. No minimum
+compatible PyArrow version has been established; use the native pqsio reader
+for concat within this release scope. See [compatibility](storage.md).
 The first install/build needs network access unless dependencies are cached.
 
 ```sh
@@ -11,23 +35,25 @@ git clone https://github.com/wangyibin/pqsio.git
 cd pqsio
 pixi install --locked
 pixi run build
+export PATH="$PWD/target/dev-release:$PATH"
 ```
 
-If you already have the source, run the last two commands from the `pqsio`
-directory. Pixi installs the build tools and Python dependencies, builds the
+If you already have the source, run the install, build and PATH commands
+from the `pqsio` directory. Pixi installs the build tools and Python dependencies, builds the
 native Rust executable and library, and configures the Python library path automatically.
 
 Check the installation:
 
 ```sh
-pixi run pqsio --version
+pqsio --version
 pixi run python -c 'import pqsio; print(pqsio.__version__)'
 ```
 
-Run commands and scripts from this repository with:
+Run the CLI directly. For Python examples using the Pixi environment, run
+from this repository:
 
 ```sh
-pixi run pqsio --help
+pqsio --help
 pixi run python example.py  # Save the homepage example as example.py first.
 ```
 
@@ -35,7 +61,9 @@ Continue with the [Python API](python.md) or [CLI guide](cli.md).
 
 ## Use the standalone Rust command
 
-After building, add the binary directory to PATH:
+The installation commands above add the binary directory to PATH for the
+current shell. In a new shell, repeat the following from the repository, or
+add the equivalent absolute path to your shell startup configuration:
 
 ```sh
 export PATH="$PWD/target/dev-release:$PATH"

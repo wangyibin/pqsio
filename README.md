@@ -3,7 +3,29 @@
 Read, write and convert genomic contacts with a **Python API** and **native Rust CLI**. Supports pairs PQS, alignment-level concat PQS, BAM/PAF import and
 Cooler output. Independent of CPhasing's phasing and alignment algorithms.
 
+## Release scope
+
+The current source release targets Linux x86-64 with the locked Pixi
+environment and native pqsio readers/writers. CPhasing with PyArrow 10.0.1
+cannot read generated concat PQS; that integration is **not supported**.
+No minimum compatible PyArrow version is claimed. aarch64 and prebuilt
+Python/Conda packages are outside the validated release scope. See
+[compatibility](docs/storage.md) and [release validation](docs/development.md).
+
 ## Install
+
+### Bioconda
+
+```sh
+conda create -n pqsio --override-channels -c conda-forge -c bioconda \
+  --strict-channel-priority pqsio
+conda activate pqsio
+pqsio --help
+```
+
+See [installation](docs/installation.md#bioconda) for channel configuration.
+
+### Build from source with Pixi
 
 With [Pixi](https://pixi.sh) installed, run on Linux:
 
@@ -12,9 +34,12 @@ git clone https://github.com/wangyibin/pqsio.git
 cd pqsio
 pixi install --locked
 pixi run build
+export PATH="$PWD/target/dev-release:$PATH"
 ```
 
-Already have the source? Run the last two commands from its `pqsio` directory.
+Already have the source? Run the install, build and PATH commands from its
+`pqsio` directory. The PATH setting enables direct `pqsio` commands in the
+current shell.
 Pixi configures Python and the native library automatically. To install into
 another Python environment, see [installation](docs/installation.md).
 
@@ -44,13 +69,13 @@ is a directory, and the output path must be new.
 Inspect the dataset created above, or convert your own BAM file:
 
 ```sh
-pixi run pqsio info sample.pairs.pqs
-pixi run pqsio head sample.pairs.pqs -n 10
-pixi run pqsio export sample.pairs.pqs -o sample.pairs.gz
+pqsio info sample.pairs.pqs
+pqsio head sample.pairs.pqs -n 10
+pqsio export sample.pairs.pqs -o sample.pairs.gz
 
-pixi run pqsio bam2pairs hic.bam -o hic.pairs.pqs --threads 4
-pixi run pqsio pairs2cool hic.pairs.pqs -o hic.10k.cool --bin-size 10k
-pixi run pqsio --help
+pqsio bam2pairs hic.bam -o hic.pairs.pqs --threads 4
+pqsio pairs2cool hic.pairs.pqs -o hic.10k.cool --bin-size 10k
+pqsio --help
 ```
 
 ## Documentation
@@ -60,6 +85,7 @@ pixi run pqsio --help
 - [Python API](docs/python.md)
 - [CLI](docs/cli.md)
 - [PQS format](docs/pqs-format.md)
+- [Complete-read selection and deferred pair expansion](docs/concat-workflow.md)
 - Other languages: [Rust](docs/rust.md), [C/C++](docs/native.md)
 
 Preview with Zensical using `pixi run -e docs docs-serve`, then open

@@ -344,10 +344,10 @@ quality counts, but full reads and writes remain slower than Text at this scale.
 After [installation](installation.md), replace the path with your dataset:
 
 ```sh
-pixi run pqsio info sample.pairs.pqs          # Kind, version and counts
-pixi run pqsio head sample.pairs.pqs -n 5     # Preview records as text
-pixi run pqsio inspect sample.pairs.pqs      # Structured metadata report
-pixi run pqsio validate sample.pairs.pqs --level full
+pqsio info sample.pairs.pqs          # Kind, version and counts
+pqsio head sample.pairs.pqs -n 5     # Preview records as text
+pqsio inspect sample.pairs.pqs      # Structured metadata report
+pqsio validate sample.pairs.pqs --level full
 ```
 
 Continue with the [Python API](python.md) or [CLI guide](cli.md).
