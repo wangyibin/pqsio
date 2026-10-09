@@ -1,5 +1,6 @@
 [project]
 site_name = "pqsio"
+site_url = "https://wangyibin.github.io/pqsio/"
 site_description = "Install pqsio, call the Python API, and use the CLI to read, write and convert genomic contacts"
 docs_dir = "docs"
 site_dir = "site"
@@ -18,7 +19,6 @@ nav = [
     { "API contracts" = "api.md" },
     { "Rust details" = "rust-reference.md" },
     { "C and C++" = "native.md" },
-    { "Development" = "development.md" },
   ] },
 ]
 

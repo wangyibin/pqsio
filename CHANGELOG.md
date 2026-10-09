@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5 — 2026-10-09
+
+- Add GitHub Actions workflows for GitHub Pages documentation deployment and
+  crates.io publication from version tags, with manual dry-run support.
+- Configure the hosted documentation URL and keep development and documentation
+  maintenance guides in `maintainer/`, outside the published website.
+- Update package versions and the Rust dependency example to 0.2.5.
+
 ## 0.2.4 — 2026-10-09
 
 - Document versioned crates.io dependencies in the Rust API guide.

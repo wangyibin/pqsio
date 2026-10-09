@@ -51,7 +51,17 @@ not a full disk; the build task checks the homepage to catch that failure.
 
 Keep README concise and put detailed usage in `docs/`. Add each new page to
 `project.nav` in `zensical.toml` and use relative Markdown links between documentation pages.
-Build the site after changes and check links. No deployment is configured yet.
+Build the site after changes and check links.
+
+## GitHub Pages
+
+`.github/workflows/docs.yml` checks relevant pull requests and deploys
+documentation changes on the default branch, version tags and manual runs to
+https://wangyibin.github.io/pqsio/. Set repository Settings → Pages → Source to
+GitHub Actions. Deployment uses the built-in GitHub token.
+
+Maintenance guides remain in `maintainer/`, outside `docs/`, so they are not
+included in website pages or navigation.
 
 ## Benchmark records
 
@@ -59,7 +69,7 @@ Publish concise benchmark figures or tables with a reproducible script, input de
 environment and measurement limits. Keep raw JSON measurements and console logs
 under ignored `tests/output/`. Run benchmarks only when needed.
 
-The [PQS format page](pqs-format.md#performance-benchmark) uses SVG figures from
+The [PQS format page](../docs/pqs-format.md#performance-benchmark) uses SVG figures from
 `docs/assets/benchmarks/format-summary.csv` for reads and
 `docs/assets/benchmarks/format-write-summary.csv` for writes. Regenerate them with Python and
 Matplotlib available (neither plotting nor Matplotlib is required for a site build):

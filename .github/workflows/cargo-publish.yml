@@ -1,0 +1,114 @@
+name: Publish crate
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to publish, e.g. v0.2.5'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate and package without uploading to crates.io'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cargo-publish-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    if: github.repository == 'wangyibin/pqsio'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      CARGO_BUILD_JOBS: '2'
+      # Keep package verification's default dev build small on hosted runners.
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - name: Check out the exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release tag and version declarations
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import tomllib
+
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', tag):
+              raise SystemExit('Provide an existing version tag such as v0.2.5.')
+          package = tomllib.loads(Path('Cargo.toml').read_text())['package']
+          version = package['version']
+          if package['name'] != 'pqsio' or tag != 'v' + version:
+              raise SystemExit('Release tag must match the pqsio Cargo.toml version.')
+          versions = [
+              tomllib.loads(Path('pyproject.toml').read_text())['project']['version'],
+              tomllib.loads(Path('pixi.toml').read_text())['workspace']['version'],
+          ]
+          module = ast.parse(Path('python/pqsio/__init__.py').read_text())
+          versions.extend(ast.literal_eval(node.value) for node in module.body
+                          if isinstance(node, ast.Assign) and any(
+                              isinstance(target, ast.Name) and target.id == '__version__'
+                              for target in node.targets))
+          lock = tomllib.loads(Path('Cargo.lock').read_text())
+          versions.extend(p['version'] for p in lock['package'] if p['name'] == 'pqsio')
+          if len(versions) != 4 or any(v != version for v in versions):
+              raise SystemExit('Cargo, Cargo.lock, Python and Pixi versions must agree.')
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          tagged = subprocess.check_output(['git', 'rev-parse', 'refs/tags/' + tag + '^{commit}'], text=True).strip()
+          if commit != tagged:
+              raise SystemExit('Checked-out source must match the requested tag.')
+          print('Validated pqsio ' + version + ' at ' + commit)
+          PY
+
+      - name: Set up locked Pixi build environment
+        uses: prefix-dev/setup-pixi@v0.11.0
+        with:
+          pixi-version: v0.61.0
+          environments: default
+          locked: true
+          cache: true
+
+      - name: Test Rust API
+        run: pixi run --locked cargo test --locked --profile dev-release -j 2
+
+      - name: Lint Rust API
+        run: pixi run --locked cargo clippy --locked --profile dev-release --all-targets -j 2 -- -D warnings
+
+      - name: Verify crate package without uploading
+        run: pixi run --locked cargo-publish-dry-run --locked -j 2
+
+      - name: Publish to crates.io as wangyibin
+        if: github.event_name == 'push' || !inputs.dry_run
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRIES_CRATES_IO_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRIES_CRATES_IO_CREDENTIAL_PROVIDER: cargo:token
+        run: |
+          set -euo pipefail
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo '::error::Configure CARGO_REGISTRY_TOKEN with a crates.io token created by wangyibin.'
+            exit 1
+          fi
+          # The same tagged package was built and verified by the dry run above.
+          pixi run --locked cargo-publish --locked --no-verify -j 2

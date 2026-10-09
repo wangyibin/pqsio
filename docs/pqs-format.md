@@ -336,8 +336,7 @@ quality counts, but full reads and writes remain slower than Text at this scale.
     Run read and write benchmarks sequentially. Temporary datasets and outputs
     are removed. JSON retains all measurements, data checksums, environment,
     source metadata hashes and script/native-library fingerprints. Published
-    CSV files omit source names and local paths. See [documentation maintenance](documentation.md#benchmark-records)
-    to regenerate the figures and exact-value tables.
+    CSV files omit source names and local paths.
 
 ## Inspect a dataset
 

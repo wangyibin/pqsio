@@ -4,7 +4,7 @@ Add pqsio from crates.io to your crate's `Cargo.toml`:
 
 ```toml
 [dependencies]
-pqsio = "0.2.4"
+pqsio = "0.2.5"
 ```
 
 ## Read and write pairs

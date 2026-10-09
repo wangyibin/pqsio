@@ -30,8 +30,3 @@ Use the pages below when you need detailed options or storage contracts.
 ## Advanced I/O
 
 [Streaming](streaming.md) · [Columnar](columnar.md) · [Parallel](parallel.md)
-
-## Development
-
-[Build, tests and release validation](development.md) ·
-[Documentation maintenance](documentation.md)

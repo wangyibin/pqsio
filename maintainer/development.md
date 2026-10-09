@@ -24,7 +24,7 @@ build and runtime validation.
 Freeze new features for this source release. Acceptance covers Linux x86-64
 using the locked Pixi environment, native pairs/concat storage, CLI conversions
 and the Python/C/C++ bindings. Storage schemas and ABI v1 remain unchanged.
-See the [compatibility boundary](storage.md#release-compatibility-boundary)
+See the [compatibility boundary](../docs/storage.md#release-compatibility-boundary)
 before using an external reader.
 
 CPhasing/PyArrow 10.0.1 concat interoperability is explicitly excluded, not
@@ -32,6 +32,24 @@ fixed: the integration suite must continue to expose its footer-decoding
 failures. Passing pairs fixtures does not establish full CPhasing pipeline
 compatibility. Other PyArrow versions, aarch64, other operating systems and
 prebuilt Python/Conda packages need separate acceptance.
+
+## v0.2.5 source-release acceptance
+
+Validated with the same Linux x86-64 environment and compatibility scope below:
+
+- `PQSIO_COOLER_TEST_PYTHON=/path/to/consumer/python pixi run --locked test`:
+  53 Rust tests and 189 Python/C/C++ cases passed, no skips; one opt-in Rust
+  performance test ignored.
+- Strict Clippy, documentation build, Markdown file links, actionlint workflow
+  validation and version consistency checks passed. CLI and Python report 0.2.5.
+- Both maintenance documents are retained outside `docs/`; their website pages
+  are absent from the generated site.
+- CPhasing compatibility: 8 passed, 2 known concat errors with PyArrow 10.0.1,
+  outside the supported scope.
+- Offline crate file inventory passed. Full extracted-package build verification
+  is configured in the publishing workflow; it was not rerun locally for 0.2.5.
+  No crates.io upload, GitHub Pages deployment, full genome pipeline or final
+  release artifact was performed locally.
 
 ## v0.2.4 source-release acceptance
 
@@ -112,6 +130,14 @@ C/C++ round trips and Python readers used the same dev-release shared library.
 `pixi run --locked -e docs docs-build` and local Markdown link checks passed.
 
 ## Source releases
+
+`.github/workflows/cargo-publish.yml` validates and publishes version tags in
+`wangyibin/pqsio`. Configure the repository Actions Secret `CARGO_REGISTRY_TOKEN`
+with a crates.io token created by wangyibin, scoped to `pqsio` with
+`publish-update` and, for the first publication, `publish-new`.
+Manual runs default to dry-run mode. Publication verifies the extracted crate
+before uploading; versions already published on crates.io cannot be replaced.
+
 
 Keep `Cargo.toml`, the root pqsio entry in `Cargo.lock`, `pyproject.toml`,
 `pixi.toml` and `python/pqsio/__init__.py` on the same library version.
