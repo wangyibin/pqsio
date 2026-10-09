@@ -108,5 +108,29 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(lib.pqsio_writer_finish(None), -1)
         self.assertIn(b"null writer",lib.pqsio_last_error())
 
+class LibraryDiscoveryTest(unittest.TestCase):
+    def test_environment_prefix_without_library_variable(self):
+        import pqsio
+        from unittest.mock import patch
+        library = Path(os.environ["PQSIO_LIBRARY"]).resolve()
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            prefix = Path(directory)
+            (prefix / "lib").mkdir()
+            (prefix / "lib/libpqsio.so").symlink_to(library)
+            with patch.object(pqsio, "_lib", None), \
+                    patch.object(pqsio.sys, "prefix", str(prefix)), \
+                    patch.dict(os.environ, {"PQSIO_LIBRARY": ""}), \
+                    patch("ctypes.util.find_library", side_effect=AssertionError("system lookup used")):
+                self.assertEqual(pqsio._library().pqsio_abi_version(), 1)
+
+    def test_explicit_library_override_is_preserved(self):
+        import pqsio
+        from unittest.mock import patch
+        with patch.object(pqsio, "_lib", None), \
+                patch.dict(os.environ, {"PQSIO_LIBRARY": "/missing/pqsio-library.so"}):
+            with self.assertRaises(OSError):
+                pqsio._library()
+
+
 if __name__ == "__main__":
     unittest.main()
