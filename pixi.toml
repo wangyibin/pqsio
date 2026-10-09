@@ -1,6 +1,6 @@
 [workspace]
 name = "pqsio"
-version = "0.2.3"
+version = "0.2.4"
 description = "Pairs and concat PQS storage for Rust, C, C++ and Python"
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64"]
@@ -54,6 +54,8 @@ LIBCLANG_PATH = "$CONDA_PREFIX/lib"
 pqsio = { cmd = "target/dev-release/pqsio", description = "Run the native Rust command-line interface", depends-on = ["build"] }
 build = { cmd = "cargo build --locked --profile dev-release -j 4", description = "Build native CLI and libraries for development" }
 build-release = { cmd = "cargo build --locked --release -j 4", description = "Build final release CLI and libraries explicitly" }
+cargo-publish-dry-run = { cmd = "cargo publish --dry-run --registry crates-io" }
+cargo-publish = { cmd = "cargo publish --registry crates-io" }
 test-rust = { cmd = "cargo test --locked --profile dev-release -j 4" }
 test-python = { cmd = "python -m unittest discover -s tests -p test_python.py -v", depends-on = ["build"] }
 test-compression = { cmd = "python -m unittest discover -s tests -p test_compression.py -v", depends-on = ["build"] }

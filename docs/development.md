@@ -33,6 +33,19 @@ failures. Passing pairs fixtures does not establish full CPhasing pipeline
 compatibility. Other PyArrow versions, aarch64, other operating systems and
 prebuilt Python/Conda packages need separate acceptance.
 
+## v0.2.4 source-release acceptance
+
+Validated with the same Linux x86-64 environment and compatibility scope below:
+
+- 53 Rust tests and 189 Python/C/C++ cases passed with the independent Cooler
+  consumer enabled; no skips, one opt-in Rust performance test ignored.
+- Strict Clippy, documentation build, version consistency and README hosted-link
+  target checks passed. CLI and Python both report `0.2.4`.
+- CPhasing compatibility: 8 passed, 2 known concat errors with PyArrow 10.0.1,
+  outside the supported scope.
+- crates.io publication and publication dry-run tasks were added but not run;
+  no full genome pipeline or final release artifact was validated.
+
 ## v0.2.3 source-release acceptance
 
 Validated with the same Linux x86-64 environment and compatibility scope below:

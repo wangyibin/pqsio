@@ -1,10 +1,10 @@
 # Rust API
 
-Add a source dependency to your crate's `Cargo.toml`:
+Add pqsio from crates.io to your crate's `Cargo.toml`:
 
 ```toml
 [dependencies]
-pqsio = { path = "../pqsio" }
+pqsio = "0.2.4"
 ```
 
 ## Read and write pairs

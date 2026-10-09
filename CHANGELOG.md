@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4 — 2026-10-09
+
+- Document versioned crates.io dependencies in the Rust API guide.
+- Add explicit Pixi tasks for crates.io publication and publication dry runs.
+- Link README documentation and user guides to the hosted documentation site
+  at https://wangyibin.github.io/pqsio/.
+- Keep Rust/Python/Pixi version declarations synchronized; storage schemas
+  and ABI v1 remain unchanged.
+
 ## 0.2.3 — 2026-10-09
 
 - Simplify installation, CLI, Python, Rust and concat workflow guides; shorten
