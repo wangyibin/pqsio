@@ -33,6 +33,19 @@ failures. Passing pairs fixtures does not establish full CPhasing pipeline
 compatibility. Other PyArrow versions, aarch64, other operating systems and
 prebuilt Python/Conda packages need separate acceptance.
 
+## v0.2.3 source-release acceptance
+
+Validated with the same Linux x86-64 environment and compatibility scope below:
+
+- `PQSIO_COOLER_TEST_PYTHON=/path/to/consumer/python pixi run --locked test`:
+  53 Rust tests and 189 Python/C/C++ cases passed, no skips; one opt-in Rust
+  performance test ignored.
+- Strict Clippy, polling-based documentation build and internal link checks passed.
+- Synthetic Python quickstart examples executed; the complete Rust quickstart
+  type-checked against v0.2.3. CLI and Python both report `0.2.3`.
+- CPhasing compatibility: 8 passed, 2 known concat errors with PyArrow 10.0.1,
+  outside the supported scope. No full genome pipeline was run.
+
 ## v0.2.2 source-release acceptance
 
 Validated on the v0.2.2 sources before committing and tagging the source release.

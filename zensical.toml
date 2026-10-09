@@ -8,38 +8,17 @@ dev_addr = "localhost:2121"
 nav = [
   { "Home" = "index.md" },
   { "Installation" = "installation.md" },
-  { "Python API" = "python.md" },
   { "CLI" = "cli.md" },
-  { "PQS format" = "pqs-format.md" },
-  { "Concat workflow" = "concat-workflow.md" },
+  { "Python API" = "python.md" },
+  { "Rust API" = "rust.md" },
   { "Reference" = [
+    { "Overview" = "reference.md" },
+    { "PQS format" = "pqs-format.md" },
+    { "Concat workflow" = "concat-workflow.md" },
     { "API contracts" = "api.md" },
-    { "Other languages" = [
-      { "Rust" = "rust.md" },
-      { "C and C++" = "native.md" },
-    ] },
-    { "Dataset operations" = [
-      { "Browse and export" = "browse.md" },
-      { "Quality statistics" = "stats.md" },
-      { "Inspection and validation" = "inspection.md" },
-      { "Region queries" = "query.md" },
-      { "Subset" = "subset.md" },
-      { "Merge" = "merge.md" },
-      { "Concat to pairs" = "convert.md" },
-      { "BAM and PAF import" = "import.md" },
-      { "Pairs to Cooler" = "cool.md" },
-      { "Copy numbers" = "copy-numbers.md" },
-    ] },
-    { "Advanced I/O" = [
-      { "Streaming" = "streaming.md" },
-      { "Columnar I/O" = "columnar.md" },
-      { "Parallel writing" = "parallel.md" },
-      { "Storage and compatibility" = "storage.md" },
-    ] },
-    { "Development" = [
-      { "Build and validation" = "development.md" },
-      { "Documentation maintenance" = "documentation.md" },
-    ] },
+    { "Rust details" = "rust-reference.md" },
+    { "C and C++" = "native.md" },
+    { "Development" = "development.md" },
   ] },
 ]
 

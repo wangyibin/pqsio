@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3 — 2026-10-09
+
+- Simplify installation, CLI, Python, Rust and concat workflow guides; shorten
+  the main getting-started pages and remove repeated setup instructions.
+- Highlight selective reads, multi-fragment preservation, batch-based I/O and
+  measured performance on the homepage, with links to benchmark methods.
+- Keep Rust API in top-level navigation and collect detailed operations in a
+  reference index; move advanced Rust examples into a separate reference page.
+- Provide a complete copyable Rust example and verify the simplified Python
+  examples and internal documentation links. Storage schemas and ABI v1 remain
+  unchanged.
+
 ## 0.2.2 — 2026-10-08
 
 - Add a runnable concat workflow and integration tests: select complete reads
