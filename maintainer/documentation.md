@@ -56,9 +56,10 @@ Build the site after changes and check links.
 ## GitHub Pages
 
 `.github/workflows/docs.yml` checks relevant pull requests and deploys
-documentation changes on the default branch, version tags and manual runs to
+documentation changes on the default branch and manual runs to
 https://wangyibin.github.io/pqsio/. Set repository Settings → Pages → Source to
 GitHub Actions. Deployment uses the built-in GitHub token.
+Version tags trigger only the separate crate publication workflow.
 
 Maintenance guides remain in `maintainer/`, outside `docs/`, so they are not
 included in website pages or navigation.
